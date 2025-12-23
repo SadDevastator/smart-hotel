@@ -22,8 +22,12 @@ class MRZExtractor:
         logger.info("Initializing MRZExtractor")
         logger.debug(f"Tessdata path: {tessdata_path}")
         
-        self.fast_mrz = FastMRZ(tessdata_path=tessdata_path)
-        logger.info("MRZExtractor initialized successfully")
+        try:
+            self.fast_mrz = FastMRZ(tessdata_path=tessdata_path)
+            logger.info("MRZExtractor initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize FastMRZ: {e}")
+            raise
     
     def extract(self, image_path):
         """
@@ -33,7 +37,11 @@ class MRZExtractor:
             image_path: Path to the image file
         
         Returns:
-            dict: Extracted MRZ data, or None if extraction failed
+            dict: Extracted MRZ data
+            
+        Raises:
+            MRZNotFoundError: If no MRZ data found
+            MRZExtractionError: If extraction process fails
         """
         logger.info("Starting MRZ extraction...")
         logger.debug(f"Image path: {image_path}")
@@ -50,9 +58,14 @@ class MRZExtractor:
                 return mrz_data
             else:
                 logger.warning("No MRZ data found in image")
-                return None
+                from error_handlers import MRZNotFoundError
+                raise MRZNotFoundError()
                 
         except Exception as e:
+            if "MRZNotFoundError" in str(type(e).__name__):
+                raise  # Re-raise our custom error
+            
             logger.error(f"Error during MRZ extraction: {e}")
             logger.exception("Full traceback:")
-            raise
+            from error_handlers import MRZExtractionError
+            raise MRZExtractionError(str(e))

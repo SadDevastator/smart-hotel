@@ -12,6 +12,14 @@ from layer1_capture import Camera
 from layer2_readjustment import DocumentProcessor
 from layer3_mrz import MRZExtractor, ImageSaver
 
+# Import error handling
+from error_handlers import (
+    ScannerError, 
+    CameraError, 
+    MRZError,
+    handle_error
+)
+
 # Setup logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -45,12 +53,30 @@ class ScannerCoordinator:
         logger.info("ScannerCoordinator initialized successfully")
     
     def initialize_camera(self):
-        """Initialize camera (Layer 1)"""
-        return self.camera.initialize()
+        """
+        Initialize camera (Layer 1)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            return self.camera.initialize()
+        except (CameraError, Exception) as e:
+            logger.error(f"Camera initialization failed: {e}")
+            return False
     
     def get_preview_frame(self):
-        """Get preview frame for video streaming (Layer 1)"""
-        return self.camera.get_preview_frame()
+        """
+        Get preview frame for video streaming (Layer 1)
+        
+        Returns:
+            numpy.ndarray or None: Frame if successful, None on error
+        """
+        try:
+            return self.camera.get_preview_frame()
+        except Exception as e:
+            logger.debug(f"Failed to get preview frame: {e}")
+            return None
     
     def release_camera(self):
         """Release camera resources (Layer 1)"""
@@ -58,103 +84,94 @@ class ScannerCoordinator:
     
     def capture_and_extract(self):
         """
-        Execute full scanning pipeline:
+        Execute full scanning pipeline with error handling:
         Layer 1 -> Layer 2 -> Layer 3
+        
+        Returns:
+            dict: Success response or error response
         """
         logger.info("=" * 60)
         logger.info("Starting capture and extraction pipeline")
         
-        # Layer 1: Capture raw frame
-        logger.info("[Layer 1] Capturing frame...")
-        raw_frame = self.camera.get_frame()
-        
-        if raw_frame is None:
-            logger.error("[Layer 1] Failed to capture frame")
-            return {"success": False, "error": "Failed to capture image"}
-        
-        logger.info(f"[Layer 1] Frame captured - Shape: {raw_frame.shape}")
-        
-        # Layer 2: Process image (currently pass-through)
-        logger.info("[Layer 2] Processing frame...")
-        processed_frame = self.processor.process(raw_frame)
-        logger.info("[Layer 2] Processing complete")
-        
-        # Layer 3: Save and extract MRZ
-        logger.info("[Layer 3] Saving image...")
-        save_result = self.image_saver.save_image(processed_frame)
-        
-        timestamp = save_result["timestamp"]
-        filepath = save_result["filepath"]
-        filename = save_result["filename"]
-        
-        logger.info("[Layer 3] Extracting MRZ...")
-        
         try:
+            # Layer 1: Capture raw frame
+            logger.info("[Layer 1] Capturing frame...")
+            raw_frame = self.camera.get_frame()
+            logger.info(f"[Layer 1] Frame captured - Shape: {raw_frame.shape}")
+            
+            # Layer 2: Process image (currently pass-through)
+            logger.info("[Layer 2] Processing frame...")
+            processed_frame = self.processor.process(raw_frame)
+            logger.info("[Layer 2] Processing complete")
+            
+            # Layer 3: Save and extract MRZ
+            logger.info("[Layer 3] Saving image...")
+            save_result = self.image_saver.save_image(processed_frame)
+            
+            timestamp = save_result["timestamp"]
+            filepath = save_result["filepath"]
+            filename = save_result["filename"]
+            
+            logger.info("[Layer 3] Extracting MRZ...")
             mrz_data = self.mrz_extractor.extract(filepath)
             
-            if mrz_data:
-                # Prepare result data
-                result_data = {
-                    "timestamp": timestamp,
-                    "image_path": filepath,
-                    "image_filename": filename,
-                    "status": "success",
-                    "mrz_data": mrz_data
-                }
-                
-                # Save JSON
-                self.image_saver.save_result_json(result_data, timestamp)
-                
-                logger.info("[Pipeline] Success!")
-                logger.info("=" * 60)
-                
-                return {
-                    "success": True,
-                    "data": mrz_data,
-                    "image_path": filepath,
-                    "timestamp": timestamp
-                }
-            else:
-                # No MRZ found
-                result_data = {
-                    "timestamp": timestamp,
-                    "image_path": filepath,
-                    "image_filename": filename,
-                    "status": "no_mrz_found",
-                    "error": "No MRZ data found"
-                }
-                
-                self.image_saver.save_result_json(result_data, timestamp)
-                
-                logger.warning("[Pipeline] No MRZ found")
-                logger.info("=" * 60)
-                
-                return {"success": False, "error": "No MRZ data found"}
-                
-        except Exception as e:
-            # Extraction error
+            # Prepare result data
             result_data = {
                 "timestamp": timestamp,
                 "image_path": filepath,
                 "image_filename": filename,
-                "status": "error",
-                "error": str(e),
-                "error_type": type(e).__name__
+                "status": "success",
+                "mrz_data": mrz_data
             }
             
+            # Save JSON
             self.image_saver.save_result_json(result_data, timestamp)
             
-            logger.error(f"[Pipeline] Error: {e}")
+            logger.info("[Pipeline] Success!")
             logger.info("=" * 60)
             
-            return {"success": False, "error": str(e)}
+            return {
+                "success": True,
+                "data": mrz_data,
+                "image_path": filepath,
+                "timestamp": timestamp
+            }
+            
+        except ScannerError as e:
+            # Known scanner error - handle gracefully
+            logger.info("[Pipeline] Failed with known error")
+            logger.info("=" * 60)
+            
+            # Try to save error info if we have a timestamp
+            if 'save_result' in locals():
+                try:
+                    error_data = {
+                        "timestamp": save_result["timestamp"],
+                        "image_path": save_result["filepath"],
+                        "image_filename": save_result["filename"],
+                        "status": "error",
+                        "error": e.message,
+                        "error_code": e.error_code,
+                        "details": e.details
+                    }
+                    self.image_saver.save_result_json(error_data, save_result["timestamp"])
+                except Exception as save_error:
+                    logger.warning(f"Could not save error JSON: {save_error}")
+            
+            return handle_error(e)
+            
+        except Exception as e:
+            # Unexpected error
+            logger.error("[Pipeline] Failed with unexpected error")
+            logger.info("=" * 60)
+            return handle_error(e)
 
 
 # Initialize scanner coordinator
 logger.info("Starting application initialization")
 
 # Configuration
-CAMERA_INDEX = 3
+CAMERA_INDEX = 2
 TESSDATA_PATH = "models/"  # Directory containing mrz.traineddata
 SAVE_DIR = "captured_passports"  # Base directory for outputs
 

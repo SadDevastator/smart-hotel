@@ -43,8 +43,12 @@ class ImageSaver:
         """Create directory structure if it doesn't exist"""
         for directory in [self.base_dir, self.images_dir, self.json_dir]:
             if not os.path.exists(directory):
-                os.makedirs(directory)
-                logger.info(f"Created directory: {directory}")
+                try:
+                    os.makedirs(directory)
+                    logger.info(f"Created directory: {directory}")
+                except Exception as e:
+                    logger.error(f"Failed to create directory {directory}: {e}")
+                    raise
     
     def save_image(self, frame, prefix="passport"):
         """
@@ -56,20 +60,36 @@ class ImageSaver:
         
         Returns:
             dict: Contains timestamp, filepath, filename
+            
+        Raises:
+            ImageSaveError: If image save fails
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{prefix}_{timestamp}.jpg"
         filepath = os.path.join(self.images_dir, filename)
         
         logger.info(f"Saving image to: {filepath}")
-        cv2.imwrite(filepath, frame)
-        logger.info("Image saved successfully")
         
-        return {
-            "timestamp": timestamp,
-            "filepath": filepath,
-            "filename": filename
-        }
+        try:
+            success = cv2.imwrite(filepath, frame)
+            if not success:
+                from error_handlers import ImageSaveError
+                raise ImageSaveError(filepath, "cv2.imwrite returned False")
+            
+            logger.info("Image saved successfully")
+            
+            return {
+                "timestamp": timestamp,
+                "filepath": filepath,
+                "filename": filename
+            }
+        except Exception as e:
+            if "ImageSaveError" in str(type(e).__name__):
+                raise  # Re-raise our custom error
+            
+            logger.error(f"Failed to save image: {e}")
+            from error_handlers import ImageSaveError
+            raise ImageSaveError(filepath, str(e))
     
     def save_result_json(self, result_data, timestamp):
         """
@@ -81,6 +101,9 @@ class ImageSaver:
         
         Returns:
             str: Path to saved JSON file
+            
+        Raises:
+            JSONSaveError: If JSON save fails
         """
         json_filename = f"passport_{timestamp}.json"
         json_filepath = os.path.join(self.json_dir, json_filename)
@@ -92,8 +115,14 @@ class ImageSaver:
         }
         
         logger.info(f"Saving JSON to: {json_filepath}")
-        with open(json_filepath, 'w', encoding='utf-8') as f:
-            json.dump(full_data, f, indent=2, ensure_ascii=False)
         
-        logger.info("JSON saved successfully")
-        return json_filepath
+        try:
+            with open(json_filepath, 'w', encoding='utf-8') as f:
+                json.dump(full_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info("JSON saved successfully")
+            return json_filepath
+        except Exception as e:
+            logger.error(f"Failed to save JSON: {e}")
+            from error_handlers import JSONSaveError
+            raise JSONSaveError(json_filepath, str(e))

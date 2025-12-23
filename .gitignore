@@ -221,3 +221,7 @@ Thumbs.db
 
 # Application specific
 models/*.traineddata  # if you want to exclude trained models
+
+# Captured data directories
+captured_passports/captured_json/*
+captured_passports/captured_images/*

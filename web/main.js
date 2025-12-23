@@ -100,3 +100,25 @@ resetBtn.addEventListener('click', () => {
     resetBtn.disabled = true;
     isCapturing = false;
 });
+
+function showStatus(message, type) {
+    statusMessage.textContent = message;
+    statusMessage.className = 'status-message status-' + type;
+    statusMessage.style.display = 'block';
+}
+
+function showDetailedError(error) {
+    let errorHtml = `<strong>${error.error || 'An error occurred'}</strong>`;
+    
+    if (error.error_code) {
+        errorHtml += `<br><small>Error Code: ${error.error_code}</small>`;
+    }
+    
+    if (error.details && error.details.suggestion) {
+        errorHtml += `<br><br>💡 <em>${error.details.suggestion}</em>`;
+    }
+    
+    statusMessage.innerHTML = errorHtml;
+    statusMessage.className = 'status-message status-error';
+    statusMessage.style.display = 'block';
+}

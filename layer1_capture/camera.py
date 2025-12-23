@@ -5,6 +5,7 @@ Output: Raw numpy.ndarray frame
 """
 import cv2
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,25 @@ class Camera:
         self.camera = None
         logger.info(f"Camera handler created for device index {camera_index}")
     
+    def _check_camera_exists(self):
+        """Check if camera device exists"""
+        device_path = f"/dev/video{self.camera_index}"
+        if not os.path.exists(device_path):
+            logger.error(f"Camera device not found: {device_path}")
+            from error_handlers import CameraNotFoundError
+            raise CameraNotFoundError(self.camera_index)
+        return True
+    
     def initialize(self):
         """
         Initialize and configure the camera
         
         Returns:
-            bool: True if successful, False otherwise
+            bool: True if successful
+            
+        Raises:
+            CameraNotFoundError: If camera device doesn't exist
+            CameraInitError: If camera fails to initialize
         """
         logger.info(f"Attempting to initialize camera at index {self.camera_index}")
         
@@ -36,13 +50,20 @@ class Camera:
             logger.debug("Camera already initialized")
             return True
         
+        # Check if camera device exists
+        self._check_camera_exists()
+        
         try:
             # Open camera with V4L2 backend
             self.camera = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
             
             if not self.camera.isOpened():
                 logger.error(f"Failed to open camera at index {self.camera_index}")
-                return False
+                from error_handlers import CameraInitError
+                raise CameraInitError(
+                    self.camera_index, 
+                    reason="Camera opened but isOpened() returned False"
+                )
             
             # Configure camera settings
             self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
@@ -67,25 +88,35 @@ class Camera:
             return True
             
         except Exception as e:
+            if "CameraInitError" in str(type(e).__name__) or "CameraNotFoundError" in str(type(e).__name__):
+                raise  # Re-raise our custom errors
+            
             logger.error(f"Error initializing camera: {e}")
-            return False
+            from error_handlers import CameraInitError
+            raise CameraInitError(self.camera_index, reason=str(e))
     
     def get_frame(self):
         """
         Capture a single frame from the camera
         
         Returns:
-            numpy.ndarray: Raw frame, or None if capture failed
+            numpy.ndarray: Raw frame
+            
+        Raises:
+            CameraNotInitializedError: If camera not initialized
+            FrameCaptureError: If frame capture fails
         """
         if self.camera is None or not self.camera.isOpened():
             logger.warning("Camera not initialized when getting frame")
-            return None
+            from error_handlers import CameraNotInitializedError
+            raise CameraNotInitializedError()
         
         ret, frame = self.camera.read()
         
-        if not ret:
+        if not ret or frame is None:
             logger.warning("Failed to read frame from camera")
-            return None
+            from error_handlers import FrameCaptureError
+            raise FrameCaptureError()
         
         return frame
     
@@ -98,14 +129,14 @@ class Camera:
             height: Preview height (default: 540)
         
         Returns:
-            numpy.ndarray: Resized frame, or None if capture failed
+            numpy.ndarray: Resized frame
+            
+        Raises:
+            CameraNotInitializedError: If camera not initialized
+            FrameCaptureError: If frame capture fails
         """
         frame = self.get_frame()
-        
-        if frame is not None:
-            return cv2.resize(frame, (width, height))
-        
-        return None
+        return cv2.resize(frame, (width, height))
     
     def is_opened(self):
         """Check if camera is currently open"""
