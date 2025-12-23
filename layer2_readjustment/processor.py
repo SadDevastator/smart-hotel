@@ -16,29 +16,36 @@ class DocumentProcessor:
     """
     
     def __init__(self, 
-                 min_area=50000,
-                 max_area=2000000,
+                 min_area_percentage=15.0,
+                 max_area_percentage=90.0,
                  enhance_contrast=True,
-                 preview_scale=0.5):
+                 preview_scale=0.5,
+                 output_width=1200,
+                 output_height=800):
         """
         Initialize document processor
         
         Args:
-            min_area: Minimum contour area for document detection
-            max_area: Maximum contour area for document detection
+            min_area_percentage: Minimum document area as % of frame (default: 15%)
+            max_area_percentage: Maximum document area as % of frame (default: 90%)
             enhance_contrast: Apply contrast enhancement (default: True)
             preview_scale: Scale factor for preview detection (0.5 = 50% size for speed)
+            output_width: Width of warped output document (default: 1200px, A4-like aspect)
+            output_height: Height of warped output document (default: 800px)
         """
-        self.min_area = min_area
-        self.max_area = max_area
+        self.min_area_percentage = min_area_percentage
+        self.max_area_percentage = max_area_percentage
         self.enhance_contrast = enhance_contrast
         self.preview_scale = preview_scale
+        self.output_width = output_width
+        self.output_height = output_height
         
         logger.info("DocumentProcessor initialized")
-        logger.debug(f"  Min area: {min_area}")
-        logger.debug(f"  Max area: {max_area}")
+        logger.debug(f"  Min area percentage: {min_area_percentage}%")
+        logger.debug(f"  Max area percentage: {max_area_percentage}%")
         logger.debug(f"  Enhance contrast: {enhance_contrast}")
         logger.debug(f"  Preview scale: {preview_scale}")
+        logger.debug(f"  Output dimensions: {output_width}x{output_height}")
     
     def process(self, frame):
         """
@@ -94,7 +101,7 @@ class DocumentProcessor:
     def _detect_document_fast(self, frame):
         """
         Fast document detection optimized for real-time preview
-        Uses downscaled image and simplified processing
+        Pipeline: Edge Detection → Contours → Largest → Polygon Approximation → Quadrilateral
         
         Args:
             frame: Input image (full resolution)
@@ -104,41 +111,54 @@ class DocumentProcessor:
         """
         # Downscale for speed
         height, width = frame.shape[:2]
+        frame_area = height * width
         small_width = int(width * self.preview_scale)
         small_height = int(height * self.preview_scale)
         small_frame = cv2.resize(frame, (small_width, small_height))
+        small_area = small_width * small_height
         
         # Convert to grayscale
         gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
         
-        # Simple blur
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Apply bilateral filter to reduce noise while keeping edges sharp
+        filtered = cv2.bilateralFilter(gray, 9, 75, 75)
         
-        # Edge detection with relaxed parameters
-        edges = cv2.Canny(blurred, 30, 100)
+        # Edge detection
+        edges = cv2.Canny(filtered, 30, 100)
+        
+        # Dilate edges to close gaps
+        kernel = np.ones((3, 3), np.uint8)
+        dilated = cv2.dilate(edges, kernel, iterations=1)
         
         # Find contours
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if not contours:
             return None
         
-        # Sort by area
+        # Sort contours by area (largest first)
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
         
-        # Adjust area thresholds for scaled image
-        scaled_min_area = self.min_area * (self.preview_scale ** 2)
-        scaled_max_area = self.max_area * (self.preview_scale ** 2)
+        # Calculate area thresholds based on percentage
+        min_area = small_area * (self.min_area_percentage / 100.0)
+        max_area = small_area * (self.max_area_percentage / 100.0)
         
-        # Find document contour
-        for contour in contours[:5]:  # Check top 5 only
+        # Find the largest quadrilateral
+        for contour in contours[:10]:
             area = cv2.contourArea(contour)
             
-            if scaled_min_area < area < scaled_max_area:
-                peri = cv2.arcLength(contour, True)
-                approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-                
-                if len(approx) == 4:
+            # Check area range
+            if area < min_area or area > max_area:
+                continue
+            
+            # Approximate polygon
+            peri = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+            
+            # Must be quadrilateral (4 corners)
+            if len(approx) == 4:
+                # Check if it's roughly rectangular (not too skewed)
+                if self._is_valid_quadrilateral(approx):
                     # Scale contour back to original size
                     scale_factor = 1.0 / self.preview_scale
                     scaled_contour = (approx * scale_factor).astype(np.int32)
@@ -146,96 +166,153 @@ class DocumentProcessor:
         
         return None
     
-    def _detect_document(self, frame):
+    def _is_valid_quadrilateral(self, quad):
         """
-        Detect passport document boundaries using edge detection and contour analysis
+        Validate that quadrilateral is reasonable (not too skewed or thin)
         
         Args:
-            frame: Input image
+            quad: 4-point contour
+            
+        Returns:
+            bool: True if valid
+        """
+        # Get the 4 points
+        points = quad.reshape(4, 2)
+        
+        # Calculate angles between consecutive edges
+        angles = []
+        for i in range(4):
+            p1 = points[i]
+            p2 = points[(i + 1) % 4]
+            p3 = points[(i + 2) % 4]
+            
+            # Vectors
+            v1 = p1 - p2
+            v2 = p3 - p2
+            
+            # Angle between vectors
+            cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
+            angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))
+            angles.append(np.degrees(angle))
+        
+        # All angles should be roughly between 60-120 degrees (not too skewed)
+        for angle in angles:
+            if angle < 60 or angle > 120:
+                return False
+        
+        return True
+    
+    def _detect_document(self, frame):
+        """
+        Full-quality document detection for capture processing
+        Pipeline: Edge Detection → Contours → Largest → Polygon Approximation → Quadrilateral
+        
+        Args:
+            frame: Input image (full resolution)
             
         Returns:
             numpy.ndarray: Document contour (4 corners) or None if not found
         """
+        height, width = frame.shape[:2]
+        frame_area = height * width
+        
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        # Apply Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Apply bilateral filter
+        filtered = cv2.bilateralFilter(gray, 11, 100, 100)
         
         # Edge detection
-        edges = cv2.Canny(blurred, 50, 150)
+        edges = cv2.Canny(filtered, 50, 150)
         
-        # Dilate edges to close gaps
+        # Dilate to close gaps
         kernel = np.ones((5, 5), np.uint8)
         dilated = cv2.dilate(edges, kernel, iterations=2)
         
         # Find contours
         contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
+        if not contours:
+            return None
+        
         # Sort contours by area (largest first)
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
         
-        # Find the largest rectangular contour (likely the passport)
-        for contour in contours[:10]:  # Check top 10 largest contours
+        # Calculate area thresholds
+        min_area = frame_area * (self.min_area_percentage / 100.0)
+        max_area = frame_area * (self.max_area_percentage / 100.0)
+        
+        # Find the largest valid quadrilateral
+        for contour in contours[:10]:
             area = cv2.contourArea(contour)
             
-            # Check if area is within expected range
-            if self.min_area < area < self.max_area:
-                # Approximate contour to polygon
-                peri = cv2.arcLength(contour, True)
-                approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-                
-                # Passport should have 4 corners
-                if len(approx) == 4:
-                    logger.debug(f"Document detected with area: {area:.0f}")
+            if area < min_area or area > max_area:
+                continue
+            
+            # Polygon approximation
+            peri = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+            
+            # Must be quadrilateral
+            if len(approx) == 4:
+                if self._is_valid_quadrilateral(approx):
+                    logger.debug(f"Document detected with area: {area:.0f} ({(area/frame_area)*100:.1f}%)")
                     return approx
         
-        logger.debug("No suitable document contour found")
+        logger.debug("No valid quadrilateral found")
         return None
     
     def _correct_perspective(self, frame, contour):
         """
-        Apply 4-point perspective transform to correct document angle
+        Apply 4-point perspective transform to create flat A4-like document
+        MOST IMPORTANT: Warps skewed document to perfect rectangular view
         
         Args:
             frame: Input image
             contour: Document contour (4 corners)
             
         Returns:
-            numpy.ndarray: Perspective-corrected image
+            numpy.ndarray: Perspective-corrected flat document
         """
         # Get the 4 corner points
-        points = contour.reshape(4, 2)
+        points = contour.reshape(4, 2).astype(np.float32)
         
-        # Order points: top-left, top-right, bottom-right, bottom-left
+        # Order points consistently: top-left, top-right, bottom-right, bottom-left
         rect = self._order_points(points)
         (tl, tr, br, bl) = rect
         
-        # Calculate width of the new image
+        # Calculate the width of the new image
+        # Use maximum of top and bottom edge lengths
         widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
         widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
         maxWidth = max(int(widthA), int(widthB))
         
-        # Calculate height of the new image
+        # Calculate the height of the new image
+        # Use maximum of left and right edge lengths
         heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
         heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
         maxHeight = max(int(heightA), int(heightB))
         
-        # Destination points for the transform
+        # Override with fixed output dimensions for consistent A4-like output
+        # This ensures all warped documents have the same size
+        output_width = self.output_width
+        output_height = self.output_height
+        
+        # Destination points for perfect rectangle
         dst = np.array([
-            [0, 0],
-            [maxWidth - 1, 0],
-            [maxWidth - 1, maxHeight - 1],
-            [0, maxHeight - 1]
-        ], dtype="float32")
+            [0, 0],                                    # Top-left
+            [output_width - 1, 0],                    # Top-right
+            [output_width - 1, output_height - 1],    # Bottom-right
+            [0, output_height - 1]                    # Bottom-left
+        ], dtype=np.float32)
         
         # Compute perspective transform matrix
         M = cv2.getPerspectiveTransform(rect, dst)
         
-        # Apply the transform
-        warped = cv2.warpPerspective(frame, M, (maxWidth, maxHeight))
+        # Apply warp perspective to get flat, rectangular document
+        warped = cv2.warpPerspective(frame, M, (output_width, output_height))
         
-        logger.debug(f"Perspective corrected to {maxWidth}x{maxHeight}")
+        logger.debug(f"Perspective corrected: {maxWidth}x{maxHeight} → {output_width}x{output_height} (A4-like)")
         return warped
     
     def _order_points(self, pts):
