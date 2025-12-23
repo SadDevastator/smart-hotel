@@ -16,8 +16,8 @@ class DocumentProcessor:
     """
     
     def __init__(self, 
-                 min_area_percentage=15.0,
-                 max_area_percentage=90.0,
+                 min_area_percentage=8.0,
+                 max_area_percentage=85.0,
                  enhance_contrast=True,
                  preview_scale=0.5,
                  output_width=1200,
@@ -26,8 +26,8 @@ class DocumentProcessor:
         Initialize document processor
         
         Args:
-            min_area_percentage: Minimum document area as % of frame (default: 15%)
-            max_area_percentage: Maximum document area as % of frame (default: 90%)
+            min_area_percentage: Minimum document area as % of frame (default: 8%)
+            max_area_percentage: Maximum document area as % of frame (default: 85%)
             enhance_contrast: Apply contrast enhancement (default: True)
             preview_scale: Scale factor for preview detection (0.5 = 50% size for speed)
             output_width: Width of warped output document (default: 1200px, A4-like aspect)
@@ -100,8 +100,10 @@ class DocumentProcessor:
     
     def _detect_document_fast(self, frame):
         """
-        Fast document detection optimized for real-time preview
-        Pipeline: Edge Detection → Contours → Largest → Polygon Approximation → Quadrilateral
+        Fast document detection using HYBRID approach:
+        1. Color-based segmentation (passports have distinct colors)
+        2. Edge detection as backup
+        3. Contour finding and quadrilateral extraction
         
         Args:
             frame: Input image (full resolution)
@@ -117,66 +119,91 @@ class DocumentProcessor:
         small_frame = cv2.resize(frame, (small_width, small_height))
         small_area = small_width * small_height
         
-        # Convert to grayscale
+        # METHOD 1: Try color-based detection first (passports are usually dark blue/red/green)
+        hsv = cv2.cvtColor(small_frame, cv2.COLOR_BGR2HSV)
+        
+        # Create mask for common passport colors
+        # Blue passports (most common)
+        lower_blue = np.array([90, 30, 30])
+        upper_blue = np.array([130, 255, 255])
+        mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+        
+        # Red passports
+        lower_red1 = np.array([0, 50, 50])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([170, 50, 50])
+        upper_red2 = np.array([180, 255, 255])
+        mask_red = cv2.inRange(hsv, lower_red1, upper_red1) | cv2.inRange(hsv, lower_red2, upper_red2)
+        
+        # Green passports
+        lower_green = np.array([35, 40, 40])
+        upper_green = np.array([85, 255, 255])
+        mask_green = cv2.inRange(hsv, lower_green, upper_green)
+        
+        # Combine all color masks
+        color_mask = mask_blue | mask_red | mask_green
+        
+        # Clean up the mask
+        kernel = np.ones((5, 5), np.uint8)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel, iterations=3)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel, iterations=2)
+        
+        # Find contours from color mask
+        contours_color, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # METHOD 2: Edge-based detection as backup
         gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(blurred, 20, 80)
         
-        # Apply bilateral filter to reduce noise while keeping edges sharp
-        filtered = cv2.bilateralFilter(gray, 9, 75, 75)
+        # Aggressive dilation
+        kernel_large = np.ones((7, 7), np.uint8)
+        dilated = cv2.dilate(edges, kernel_large, iterations=3)
+        closed = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel_large, iterations=2)
         
-        # Edge detection
-        edges = cv2.Canny(filtered, 30, 100)
+        contours_edge, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Dilate edges to close gaps
-        kernel = np.ones((3, 3), np.uint8)
-        dilated = cv2.dilate(edges, kernel, iterations=1)
+        # Combine both methods
+        all_contours = list(contours_color) + list(contours_edge)
         
-        # Find contours
-        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if not contours:
+        if not all_contours:
             return None
         
-        # Sort contours by area (largest first)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        # Sort by area
+        all_contours = sorted(all_contours, key=cv2.contourArea, reverse=True)
         
-        # Calculate area thresholds based on percentage
+        # Lower threshold for detection
         min_area = small_area * (self.min_area_percentage / 100.0)
         max_area = small_area * (self.max_area_percentage / 100.0)
         
-        # Find the largest quadrilateral
-        for contour in contours[:10]:
+        # Find quadrilateral
+        for contour in all_contours[:20]:
             area = cv2.contourArea(contour)
             
-            # Check area range
             if area < min_area or area > max_area:
                 continue
             
-            # Approximate polygon
             peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)  # Tighter approximation
             
-            # Must be quadrilateral (4 corners)
             if len(approx) == 4:
-                # Check if it's roughly rectangular (not too skewed)
-                if self._is_valid_quadrilateral(approx):
-                    # Scale contour back to original size
+                if self._is_valid_quadrilateral_lenient(approx):
                     scale_factor = 1.0 / self.preview_scale
                     scaled_contour = (approx * scale_factor).astype(np.int32)
                     return scaled_contour
         
         return None
     
-    def _is_valid_quadrilateral(self, quad):
+    def _is_valid_quadrilateral_lenient(self, quad):
         """
-        Validate that quadrilateral is reasonable (not too skewed or thin)
+        More precise quadrilateral validation for better accuracy
         
         Args:
             quad: 4-point contour
             
         Returns:
-            bool: True if valid
+            bool: True if valid rectangular shape
         """
-        # Get the 4 points
         points = quad.reshape(4, 2)
         
         # Calculate angles between consecutive edges
@@ -186,26 +213,103 @@ class DocumentProcessor:
             p2 = points[(i + 1) % 4]
             p3 = points[(i + 2) % 4]
             
-            # Vectors
             v1 = p1 - p2
             v2 = p3 - p2
             
-            # Angle between vectors
             cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
             angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))
             angles.append(np.degrees(angle))
         
-        # All angles should be roughly between 60-120 degrees (not too skewed)
+        # Tighter validation: angles between 60-120 degrees (more rectangular)
         for angle in angles:
             if angle < 60 or angle > 120:
                 return False
+        
+        # Check aspect ratio (passports are roughly 1.4:1)
+        # Calculate width and height
+        widths = [
+            np.linalg.norm(points[1] - points[0]),
+            np.linalg.norm(points[2] - points[3])
+        ]
+        heights = [
+            np.linalg.norm(points[3] - points[0]),
+            np.linalg.norm(points[2] - points[1])
+        ]
+        
+        avg_width = np.mean(widths)
+        avg_height = np.mean(heights)
+        
+        if avg_width == 0 or avg_height == 0:
+            return False
+        
+        aspect_ratio = max(avg_width, avg_height) / min(avg_width, avg_height)
+        
+        # Passport aspect ratio should be between 1.2 and 1.8
+        if aspect_ratio < 1.2 or aspect_ratio > 1.8:
+            return False
+        
+        return True
+    
+    def _is_valid_quadrilateral(self, quad):
+        """
+        Strict quadrilateral validation for capture processing
+        Ensures high-quality rectangular detection
+        
+        Args:
+            quad: 4-point contour
+            
+        Returns:
+            bool: True if valid
+        """
+        points = quad.reshape(4, 2)
+        
+        # Calculate angles between consecutive edges
+        angles = []
+        for i in range(4):
+            p1 = points[i]
+            p2 = points[(i + 1) % 4]
+            p3 = points[(i + 2) % 4]
+            
+            v1 = p1 - p2
+            v2 = p3 - p2
+            
+            cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
+            angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))
+            angles.append(np.degrees(angle))
+        
+        # Strict: angles between 70-110 degrees (very rectangular)
+        for angle in angles:
+            if angle < 70 or angle > 110:
+                return False
+        
+        # Check aspect ratio
+        widths = [
+            np.linalg.norm(points[1] - points[0]),
+            np.linalg.norm(points[2] - points[3])
+        ]
+        heights = [
+            np.linalg.norm(points[3] - points[0]),
+            np.linalg.norm(points[2] - points[1])
+        ]
+        
+        avg_width = np.mean(widths)
+        avg_height = np.mean(heights)
+        
+        if avg_width == 0 or avg_height == 0:
+            return False
+        
+        aspect_ratio = max(avg_width, avg_height) / min(avg_width, avg_height)
+        
+        # Stricter aspect ratio for capture: 1.3-1.6 (typical passport)
+        if aspect_ratio < 1.3 or aspect_ratio > 1.6:
+            return False
         
         return True
     
     def _detect_document(self, frame):
         """
         Full-quality document detection for capture processing
-        Pipeline: Edge Detection → Contours → Largest → Polygon Approximation → Quadrilateral
+        More aggressive edge linking to capture full passport boundary
         
         Args:
             frame: Input image (full resolution)
@@ -222,17 +326,21 @@ class DocumentProcessor:
         # Apply bilateral filter
         filtered = cv2.bilateralFilter(gray, 11, 100, 100)
         
-        # Edge detection
-        edges = cv2.Canny(filtered, 50, 150)
+        # More aggressive edge detection (lower thresholds)
+        edges = cv2.Canny(filtered, 30, 120)
         
-        # Dilate to close gaps
-        kernel = np.ones((5, 5), np.uint8)
-        dilated = cv2.dilate(edges, kernel, iterations=2)
+        # AGGRESSIVE dilation to connect broken passport edges
+        kernel = np.ones((9, 9), np.uint8)  # Large kernel
+        dilated = cv2.dilate(edges, kernel, iterations=4)  # Many iterations
+        
+        # Close operation to fill gaps
+        closed = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=3)
         
         # Find contours
-        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if not contours:
+            logger.debug("No contours found")
             return None
         
         # Sort contours by area (largest first)
@@ -242,22 +350,32 @@ class DocumentProcessor:
         min_area = frame_area * (self.min_area_percentage / 100.0)
         max_area = frame_area * (self.max_area_percentage / 100.0)
         
+        logger.debug(f"Searching {len(contours)} contours, area range: {min_area:.0f}-{max_area:.0f}")
+        
         # Find the largest valid quadrilateral
-        for contour in contours[:10]:
+        for idx, contour in enumerate(contours[:15]):  # Check top 15
             area = cv2.contourArea(contour)
             
-            if area < min_area or area > max_area:
+            if area < min_area:
+                logger.debug(f"Contour {idx+1}: area {area:.0f} too small")
+                continue
+            if area > max_area:
+                logger.debug(f"Contour {idx+1}: area {area:.0f} too large")
                 continue
             
-            # Polygon approximation
+            # Polygon approximation with slightly higher tolerance
             peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+            approx = cv2.approxPolyDP(contour, 0.03 * peri, True)
+            
+            logger.debug(f"Contour {idx+1}: area {area:.0f} ({(area/frame_area)*100:.1f}%), {len(approx)} corners")
             
             # Must be quadrilateral
             if len(approx) == 4:
                 if self._is_valid_quadrilateral(approx):
-                    logger.debug(f"Document detected with area: {area:.0f} ({(area/frame_area)*100:.1f}%)")
+                    logger.debug(f"✓ Valid quadrilateral found!")
                     return approx
+                else:
+                    logger.debug(f"  Rejected: angles too extreme")
         
         logger.debug("No valid quadrilateral found")
         return None

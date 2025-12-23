@@ -131,6 +131,39 @@ class MRZExtractionError(MRZError):
         )
 
 
+# Layer 4 Errors - Document Filling
+class DocumentFillingError(ScannerError):
+    """Document filling errors"""
+    pass
+
+
+class TemplateNotFoundError(DocumentFillingError):
+    """Template file not found"""
+    def __init__(self, template_path):
+        super().__init__(
+            message=f"Template file not found: {template_path}",
+            error_code="TEMPLATE_NOT_FOUND",
+            details={
+                "template_path": template_path,
+                "suggestion": "Check that the template file exists in the templates/ directory"
+            }
+        )
+
+
+class TemplateSaveError(DocumentFillingError):
+    """Failed to save filled document"""
+    def __init__(self, output_path, reason):
+        super().__init__(
+            message=f"Failed to save filled document to {output_path}",
+            error_code="TEMPLATE_SAVE_FAILED",
+            details={
+                "output_path": output_path,
+                "reason": str(reason),
+                "suggestion": "Check disk space and write permissions in filled_documents/"
+            }
+        )
+
+
 class SaveError(ScannerError):
     """File saving errors"""
     pass

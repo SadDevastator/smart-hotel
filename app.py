@@ -11,6 +11,7 @@ import logging
 from layer1_capture import Camera
 from layer2_readjustment import DocumentProcessor
 from layer3_mrz import MRZExtractor, ImageSaver
+from layer4_document_filling import DocumentFiller, DocumentFillingError
 
 # Import error handling
 from error_handlers import (
@@ -30,6 +31,12 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Configuration
+CAMERA_INDEX = 2
+TESSDATA_PATH = "models/"  # Directory containing mrz.traineddata
+SAVE_DIR = "captured_passports"  # Base directory for outputs
+TEMPLATE_PATH = "templates/DWA_Registration_Card.docx"  # Registration card template
+
 
 class ScannerCoordinator:
     """
@@ -37,7 +44,7 @@ class ScannerCoordinator:
     Thin wrapper that delegates to layer-specific components
     """
     
-    def __init__(self, camera_index, tessdata_path, save_dir):
+    def __init__(self, camera_index, tessdata_path, save_dir, template_path):
         logger.info("Initializing ScannerCoordinator")
         
         # Layer 1: Capture
@@ -49,6 +56,14 @@ class ScannerCoordinator:
         # Layer 3: MRZ Extraction
         self.mrz_extractor = MRZExtractor(tessdata_path=tessdata_path)
         self.image_saver = ImageSaver(base_dir=save_dir)
+        
+        # Layer 4: Document Filling
+        try:
+            self.document_filler = DocumentFiller(template_path=template_path)
+        except Exception as e:
+            logger.warning(f"Document filler initialization failed: {e}")
+            logger.warning("Layer 4 will be skipped in pipeline")
+            self.document_filler = None
         
         logger.info("ScannerCoordinator initialized successfully")
     
@@ -106,7 +121,7 @@ class ScannerCoordinator:
     def capture_and_extract(self):
         """
         Execute full scanning pipeline with error handling:
-        Layer 1 -> Layer 2 -> Layer 3
+        Layer 1 -> Layer 2 -> Layer 3 -> Layer 4
         
         Returns:
             dict: Success response or error response
@@ -136,13 +151,31 @@ class ScannerCoordinator:
             logger.info("[Layer 3] Extracting MRZ...")
             mrz_data = self.mrz_extractor.extract(filepath)
             
+            # Layer 4: Fill document template (optional - continues on failure)
+            fill_result = None
+            if self.document_filler is not None:
+                try:
+                    logger.info("[Layer 4] Filling registration card...")
+                    fill_result = self.document_filler.fill_registration_card(mrz_data, timestamp)
+                    logger.info(f"[Layer 4] ✓ Document saved: {fill_result['output_filename']}")
+                except DocumentFillingError as e:
+                    logger.warning(f"[Layer 4] Document filling failed: {e.message}")
+                    logger.debug(f"  Details: {e.details}")
+                    # Continue - document filling is not critical
+                except Exception as e:
+                    logger.error(f"[Layer 4] Unexpected error in document filling: {e}")
+                    # Continue - document filling is not critical
+            else:
+                logger.info("[Layer 4] Skipped (document filler not available)")
+            
             # Prepare result data
             result_data = {
                 "timestamp": timestamp,
                 "image_path": filepath,
                 "image_filename": filename,
                 "status": "success",
-                "mrz_data": mrz_data
+                "mrz_data": mrz_data,
+                "filled_document": fill_result if fill_result else None
             }
             
             # Save JSON
@@ -151,12 +184,21 @@ class ScannerCoordinator:
             logger.info("[Pipeline] Success!")
             logger.info("=" * 60)
             
-            return {
+            response = {
                 "success": True,
                 "data": mrz_data,
                 "image_path": filepath,
                 "timestamp": timestamp
             }
+            
+            # Add filled document info if available
+            if fill_result:
+                response["filled_document"] = {
+                    "path": fill_result['output_path'],
+                    "filename": fill_result['output_filename']
+                }
+            
+            return response
             
         except ScannerError as e:
             # Known scanner error - handle gracefully
@@ -191,15 +233,11 @@ class ScannerCoordinator:
 # Initialize scanner coordinator
 logger.info("Starting application initialization")
 
-# Configuration
-CAMERA_INDEX = 2
-TESSDATA_PATH = "models/"  # Directory containing mrz.traineddata
-SAVE_DIR = "captured_passports"  # Base directory for outputs
-
 scanner = ScannerCoordinator(
     camera_index=CAMERA_INDEX,
     tessdata_path=TESSDATA_PATH,
-    save_dir=SAVE_DIR
+    save_dir=SAVE_DIR,
+    template_path=TEMPLATE_PATH
 )
 
 
@@ -240,7 +278,7 @@ def video_feed():
                 
                 frame_count += 1
                 if frame_count % 30 == 0:
-                    logger.debug(f"Video stream: {frame_count} frames sent")
+                    # logger.debug(f"Video stream: {frame_count} frames sent")
                     if detection_info and detection_info.get('detected'):
                         logger.debug(f"  Document detected: {detection_info['area_percentage']:.1f}% of frame")
                 
@@ -285,11 +323,17 @@ def capture():
 
 @app.route('/start_camera', methods=['POST'])
 def start_camera():
-    """Initialize camera"""
+    """Initialize camera with error details"""
     logger.info("Start camera request received")
-    success = scanner.initialize_camera()
-    logger.info(f"Camera start result: {success}")
-    return jsonify({"success": success})
+    
+    try:
+        success = scanner.initialize_camera()
+        logger.info(f"Camera start result: {success}")
+        return jsonify({"success": success})
+    except CameraError as e:
+        return jsonify(handle_error(e))
+    except Exception as e:
+        return jsonify(handle_error(e))
 
 
 @app.route('/stop_camera', methods=['POST'])
@@ -305,14 +349,17 @@ if __name__ == '__main__':
     print("PASSPORT SCANNER WEB SERVER")
     print("=" * 60)
     print("\n📁 Project Structure:")
-    print("  layer1_capture/       - Camera handling")
-    print("  layer2_readjustment/  - Document processing + Real-time Detection")
-    print("  layer3_mrz/           - MRZ extraction")
-    print("  web/                  - Frontend files")
-    print("  models/               - OCR models (mrz.traineddata)")
+    print("  layer1_capture/          - Camera handling")
+    print("  layer2_readjustment/     - Document processing + Real-time Detection")
+    print("  layer3_mrz/              - MRZ extraction")
+    print("  layer4_document_filling/ - Auto-fill registration cards")
+    print("  web/                     - Frontend files")
+    print("  models/                  - OCR models (mrz.traineddata)")
+    print("  templates/               - Document templates")
     print("  captured_passports/")
-    print("    ├── captured_images/  - Saved JPG files")
-    print("    └── captured_json/    - Extraction results")
+    print("    ├── captured_images/     - Saved JPG files")
+    print("    └── captured_json/       - Extraction results")
+    print("  filled_documents/        - Auto-filled registration cards")
     print("\n🌐 Server Info:")
     print("  URL: http://localhost:5000")
     print("  Debug Mode: ON")

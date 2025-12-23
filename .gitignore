@@ -225,3 +225,5 @@ models/*.traineddata  # if you want to exclude trained models
 # Captured data directories
 captured_passports/captured_json/*
 captured_passports/captured_images/*
+filled_documents/*
+templates/.~lock.DWA_Registration_Card.docx#
