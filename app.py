@@ -34,9 +34,9 @@ app = Flask(__name__)
 # Configuration
 CAMERA_INDEX = 2
 TESSDATA_PATH = "models/"  # Directory containing mrz.traineddata
-SAVE_DIR = "captured_passports"  # Base directory for outputs
+SAVE_DIR = "Data/captured_passports"  # Base directory for outputs
 TEMPLATE_PATH = "templates/DWA_Registration_Card.pdf"  # Registration card template
-
+SAVED_DOCUMENTS_DIR = "Data/filled_documents"  # Directory for saved filled documents
 
 class ScannerCoordinator:
     """
@@ -44,7 +44,7 @@ class ScannerCoordinator:
     Thin wrapper that delegates to layer-specific components
     """
     
-    def __init__(self, camera_index, tessdata_path, save_dir, template_path):
+    def __init__(self, camera_index, tessdata_path, save_dir, template_path, saved_documents_dir):
         logger.info("Initializing ScannerCoordinator")
         
         # Layer 1: Capture
@@ -59,7 +59,10 @@ class ScannerCoordinator:
         
         # Layer 4: Document Filling
         try:
-            self.document_filler = DocumentFiller(template_path=template_path)
+            self.document_filler = DocumentFiller(
+                template_path=template_path,
+                saved_documents_dir=saved_documents_dir
+            )
         except Exception as e:
             logger.warning(f"Document filler initialization failed: {e}")
             logger.warning("Layer 4 will be skipped in pipeline")
@@ -237,7 +240,8 @@ scanner = ScannerCoordinator(
     camera_index=CAMERA_INDEX,
     tessdata_path=TESSDATA_PATH,
     save_dir=SAVE_DIR,
-    template_path=TEMPLATE_PATH
+    template_path=TEMPLATE_PATH,
+    saved_documents_dir=SAVED_DOCUMENTS_DIR
 )
 
 
