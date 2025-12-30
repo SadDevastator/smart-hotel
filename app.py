@@ -34,9 +34,9 @@ app = Flask(__name__)
 # Configuration
 CAMERA_INDEX = 2
 TESSDATA_PATH = "models/"  # Directory containing mrz.traineddata
-SAVE_DIR = "Data/captured_passports"  # Base directory for outputs
 TEMPLATE_PATH = "templates/DWA_Registration_Card.pdf"  # Registration card template
-SAVED_DOCUMENTS_DIR = "Data/filled_documents"  # Directory for saved filled documents
+SAVE_DIR = "Logs/captured_passports"  # Base directory for outputs
+SAVED_DOCUMENTS_DIR = "Logs/filled_documents"  # Directory for saved filled documents
 
 class ScannerCoordinator:
     """
