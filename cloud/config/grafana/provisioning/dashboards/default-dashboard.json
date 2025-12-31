@@ -52,8 +52,6 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-        "defaults": {
-          "color": {
             "mode": "palette-classic"
           },
           "custom": {
