@@ -114,7 +114,7 @@ services:
     networks:
       - default
   # Main Kiosk Web Application (Django)
-  Kiosk:
+  kiosk:
     build:
       context: ../kiosk
       dockerfile: Dockerfile
@@ -125,7 +125,7 @@ services:
       SECRET_KEY: 'replace-me-in-production'
       ALLOWED_HOSTS: '*'
       # MRZ service connection
-      MRZ_SERVICE_URL: 'http://mrz-service:5000'
+      MRZ_SERVICE_URL: 'http://mrz:5000'
     volumes:
       # Persist SQLite database across container restarts
       - kiosk_data:/app/data
@@ -151,8 +151,6 @@ services:
     volumes:
       # Persist logs (captured passports and filled documents)
       - mrz_logs:/app/Logs
-      # Mount templates for document filling
-      - ./MRZ/templates:/app/templates:ro
     # Grant access to camera devices
     devices:
       - /dev/video0:/dev/video0
