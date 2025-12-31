@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+
+{% block title %}Enroll Face IDs - Smart Hotel{% endblock %}
+
+{% block head %}
+<style>
+.enroll-page {
+    max-width: 700px;
+    margin: 0 auto;
+}
+.enroll-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+.enroll-header .icon-box {
+    flex-shrink: 0;
+}
+.enroll-header h1 {
+    margin-bottom: 0.25rem;
+    font-size: 1.5rem;
+}
+.enroll-header p {
+    margin: 0;
+    color: var(--text-muted);
+}
+.capacity-display {
+    display: flex;
+    background: linear-gradient(135deg, rgba(14,165,233,0.1) 0%, transparent 100%);
+    border: 1px solid rgba(14,165,233,0.2);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 2rem;
+}
+.capacity-display .stat {
+    flex: 1;
+    padding: 1.25rem;
+    text-align: center;
+}
+.capacity-display .stat:first-child {
+    border-right: 1px solid rgba(14,165,233,0.2);
+}
+.capacity-display .stat small {
+    display: block;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem;
+}
+.capacity-display .stat strong {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--brand);
+}
+.capacity-display .stat.remaining strong {
+    color: var(--accent);
+}
+.file-upload-item {
+    background: var(--bg);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+.file-upload-item label {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="enroll-page">
+	<div class="card p-4 p-md-5">
+		<div class="enroll-header">
+			<div class="icon-box icon-brand">
+				<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4H2zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1zm9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0z"/></svg>
+			</div>
+			<div>
+				<h1 data-i18n="enroll_heading" data-i18n-res="{{ reservation.reservation_number }}">Enroll Face IDs</h1>
+				<p>Reservation: {{ reservation.reservation_number }}</p>
+			</div>
+		</div>
+		
+		{% if capacity is not none %}
+		<div class="capacity-display">
+			<div class="stat">
+				<small>Room Capacity</small>
+				<strong>{{ capacity }}</strong>
+			</div>
+			<div class="stat remaining">
+				<small>Slots Remaining</small>
+				<strong>{{ remaining }}</strong>
+			</div>
+		</div>
+		{% endif %}
+		
+		<form id="enrollForm" method="post" enctype="multipart/form-data">
+			{% csrf_token %}
+			{% if error %}
+				<div class="alert alert-danger">{{ error }}</div>
+			{% endif %}
+			
+			<div class="mb-4">
+				<label class="form-label fw-bold" data-i18n="enroll_count_label">Number of people to enroll</label>
+				<input id="countInput" class="form-control" name="count" type="number" value="1" min="1" style="max-width: 140px;">
+				<small class="text-muted" data-i18n="enroll_proceed">File inputs will appear for each person.</small>
+			</div>
+			
+			<div id="fileFields" class="mb-4"></div>
+			<button id="enrollBtn" class="btn btn-primary btn-lg" data-i18n="enroll_proceed">
+				Continue
+				<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16" style="margin-left: 8px;"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+			</button>
+		</form>
+	</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('enrollForm').addEventListener('submit', function(e){
+	const fileContainer = document.getElementById('fileFields');
+	// if file inputs already present, allow actual submit
+	if (fileContainer.children.length > 0) {
+		return; // let the form submit with files
+	}
+	e.preventDefault();
+	const count = parseInt(document.getElementById('countInput').value) || 1;
+	const remaining = parseInt('{{ remaining|default:0 }}') || 0;
+	if (remaining <= 0){
+		alert('No enrollment slots remaining for this room.');
+		return;
+	}
+	if (count > remaining){
+		alert('You requested '+count+' but only '+remaining+' slots remain.');
+		return;
+	}
+	// create file inputs
+	for (let i=1;i<=count;i++){
+		const div = document.createElement('div');
+		div.className = 'file-upload-item';
+		div.innerHTML = `<label class="form-label d-flex align-items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/></svg> Photo for person ${i}</label><input class="form-control" type="file" name="face_${i}" accept="image/*" required>`;
+		fileContainer.appendChild(div);
+	}
+	// change button text
+	document.getElementById('enrollBtn').innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 8px;"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg> Upload Photos';
+	// focus first input
+	const first = fileContainer.querySelector('input[type=file]');
+	if (first) first.focus();
+});
+</script>
+{% endblock %}

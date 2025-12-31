@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+
+{% block title %}Choose Language - Smart Hotel{% endblock %}
+
+{% block head %}
+<style>
+.language-page {
+    max-width: 800px;
+    margin: 0 auto;
+}
+.language-header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+    animation: fadeInUp 0.6s ease-out;
+}
+.language-header h1 {
+    font-size: 2.25rem;
+    margin-bottom: 0.75rem;
+    font-weight: 700;
+}
+.language-header .lead {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+}
+.language-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+}
+@media (max-width: 640px) {
+    .language-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+.language-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 2rem 1.5rem;
+    background: var(--card-bg);
+    border: 2px solid transparent;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    font-family: inherit;
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    overflow: hidden;
+}
+.language-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(14,165,233,0.1) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+.language-card:hover {
+    transform: translateY(-8px) scale(1.03);
+    box-shadow: var(--shadow-xl), 0 0 30px rgba(14,165,233,0.2);
+    border-color: rgba(14,165,233,0.4);
+}
+.language-card:hover::before {
+    opacity: 1;
+}
+.language-card:active {
+    transform: translateY(-2px) scale(0.98);
+}
+.language-card .emoji {
+    font-size: 3rem;
+    line-height: 1;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.language-card:hover .emoji {
+    transform: scale(1.15) rotate(-5deg);
+}
+.language-card .label {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+    transition: color 0.3s ease;
+}
+.language-card:hover .label {
+    color: var(--accent-dark);
+}
+/* Staggered entrance animations */
+.language-grid form:nth-child(1) .language-card { animation: fadeInUp 0.5s ease-out 0.05s forwards; opacity: 0; }
+.language-grid form:nth-child(2) .language-card { animation: fadeInUp 0.5s ease-out 0.1s forwards; opacity: 0; }
+.language-grid form:nth-child(3) .language-card { animation: fadeInUp 0.5s ease-out 0.15s forwards; opacity: 0; }
+.language-grid form:nth-child(4) .language-card { animation: fadeInUp 0.5s ease-out 0.2s forwards; opacity: 0; }
+.language-grid form:nth-child(5) .language-card { animation: fadeInUp 0.5s ease-out 0.25s forwards; opacity: 0; }
+.language-grid form:nth-child(6) .language-card { animation: fadeInUp 0.5s ease-out 0.3s forwards; opacity: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="language-page">
+    <div class="card p-5">
+        <div class="language-header">
+            <h1 data-i18n="choose_language">Choose Language</h1>
+            <p class="lead">Select your preferred language to continue</p>
+        </div>
+        <div class="language-grid">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="language" value="en">
+                <button type="submit" class="language-card">
+                    <span class="emoji">🇺🇸</span>
+                    <span class="label">English</span>
+                </button>
+            </form>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="language" value="es">
+                <button type="submit" class="language-card">
+                    <span class="emoji">🇪🇸</span>
+                    <span class="label">Español</span>
+                </button>
+            </form>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="language" value="fr">
+                <button type="submit" class="language-card">
+                    <span class="emoji">🇫🇷</span>
+                    <span class="label">Français</span>
+                </button>
+            </form>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="language" value="zh">
+                <button type="submit" class="language-card">
+                    <span class="emoji">🇨🇳</span>
+                    <span class="label">中文</span>
+                </button>
+            </form>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="language" value="ru">
+                <button type="submit" class="language-card">
+                    <span class="emoji">🇷🇺</span>
+                    <span class="label">Русский</span>
+                </button>
+            </form>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="language" value="ja">
+                <button type="submit" class="language-card">
+                    <span class="emoji">🇯🇵</span>
+                    <span class="label">日本語</span>
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

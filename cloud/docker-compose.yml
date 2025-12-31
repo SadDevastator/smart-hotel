@@ -1,0 +1,184 @@
+services:
+  influxdb:
+    image: docker.io/influxdb:2-alpine
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpass
+      - DOCKER_INFLUXDB_INIT_ORG=org
+      - DOCKER_INFLUXDB_INIT_BUCKET=bucket
+      - DOCKER_INFLUXDB_INIT_RETENTION=0
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=admin-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2:rw
+      - influxdb-config:/etc/influxdb2:rw
+      - ./config/influxdb/init-telegraf.sh:/docker-entrypoint-initdb.d/init-telegraf.sh:ro
+    restart: unless-stopped
+    networks:
+      - default
+
+  postgres:
+    image: docker.io/postgres:16-alpine
+    container_name: postgres
+    environment:
+      - POSTGRES_DB=smarthotel
+      - POSTGRES_USER=smarthotel
+      - POSTGRES_PASSWORD=smarthotel
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:rw
+    restart: unless-stopped
+    networks:
+      - default
+
+  dashboard:
+    build:
+      context: ../dashboards/django_app
+      dockerfile: Dockerfile
+    container_name: dashboard
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgres://smarthotel:smarthotel@postgres:5432/smarthotel
+      - POSTGRES_DB=smarthotel
+      - POSTGRES_USER=smarthotel
+      - POSTGRES_PASSWORD=smarthotel
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=admin-token
+      - INFLUX_ORG=org
+      - INFLUX_BUCKET=bucket
+      - DJANGO_SECRET_KEY=change-me-in-production
+      - DJANGO_DEBUG=True
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_ID=
+    depends_on:
+      - influxdb
+      - postgres
+    restart: unless-stopped
+    networks:
+      - default
+
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - INFLUX_TOKEN=admin-token
+    volumes:
+      - grafana-data:/var/lib/grafana:rw
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-logs:/var/log/grafana:rw
+    depends_on:
+      - influxdb
+      - telegraf
+    restart: unless-stopped
+    networks:
+      - default
+
+  telegraf:
+    image: docker.io/telegraf:alpine
+    container_name: telegraf
+    depends_on:
+      - influxdb
+      - mosquitto
+    volumes:
+      - ./config/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=admin-token
+      - INFLUX_ORG=org
+      - INFLUX_BUCKET=bucket
+    restart: unless-stopped
+    cap_add:
+      - CAP_NET_RAW
+    networks:
+      - default
+
+  mosquitto:
+    image: docker.io/eclipse-mosquitto:latest
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data:rw
+      - mosquitto-logs:/mosquitto/log:rw
+    restart: unless-stopped
+    networks:
+      - default
+  # Main Kiosk Web Application (Django)
+  Kiosk:
+    build:
+      context: ../kiosk
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DEBUG: '0'
+      SECRET_KEY: 'replace-me-in-production'
+      ALLOWED_HOSTS: '*'
+      # MRZ service connection
+      MRZ_SERVICE_URL: 'http://mrz-service:5000'
+    volumes:
+      # Persist SQLite database across container restarts
+      - kiosk_data:/app/data
+      # Persist media files (uploaded scans, filled documents)
+      - kiosk_media:/app/media
+    depends_on:
+      - mrz-service
+    restart: unless-stopped
+    networks:
+      - kiosk-network
+
+  # MRZ AI Microservice (Flask)
+  MRZ:
+    build:
+      context: ../kiosk/app
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      PYTHONUNBUFFERED: '1'
+      # Camera device index (adjust based on hardware)
+      CAMERA_INDEX: '2'
+    volumes:
+      # Persist logs (captured passports and filled documents)
+      - mrz_logs:/app/Logs
+      # Mount templates for document filling
+      - ./MRZ/templates:/app/templates:ro
+    # Grant access to camera devices
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/video2:/dev/video2
+    # Required for camera access
+    privileged: false
+    group_add:
+      - video
+    restart: unless-stopped
+    networks:
+      - kiosk-network
+
+networks:
+  kiosk-network:
+    driver: bridge
+  default:
+    driver: bridge
+
+volumes:
+  kiosk_data:
+  kiosk_media:
+  mrz_logs:
+  influxdb-data:
+  influxdb-config:
+  grafana-data:
+  grafana-logs:
+  mosquitto-data:
+  mosquitto-logs:
+  postgres-data:

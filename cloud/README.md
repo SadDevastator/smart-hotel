@@ -1,6 +1,14 @@
-# cloud
+# Minimal Compose with Grafana, InfluxDB, Telegraf, Mosquitto
 
-Placeholder README for the cloud directory.
-# cloud
+This small setup provides a minimal local stack with bind mounts for data and logs.
 
-Placeholder README for the `cloud` folder.
+Quick start:
+
+```bash
+docker compose up -d
+```
+
+Defaults:
+- Grafana: http://localhost:3000 (admin/admin)
+- InfluxDB: http://localhost:8086 (init user `admin` / password `adminpass`)
+- Mosquitto: mqtt://localhost:1883
