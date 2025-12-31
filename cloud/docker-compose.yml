@@ -132,7 +132,7 @@ services:
       # Persist media files (uploaded scans, filled documents)
       - kiosk_media:/app/media
     depends_on:
-      - mrz-service
+      - MRZ
     restart: unless-stopped
     networks:
       - kiosk-network
