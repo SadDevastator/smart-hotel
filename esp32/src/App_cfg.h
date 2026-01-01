@@ -25,7 +25,8 @@
 #define WIFI_ENABLED        STD_ON
 #define MQTT_ENABLED        STD_ON
 #define DHT22_ENABLED       STD_ON
-
+#define LDR_1_ENABLED       STD_ON
+#define MQ5_1_ENABLED       STD_ON
 /* =========================
  * Debug Flags
  * ========================= */
@@ -43,7 +44,8 @@
 #define WIFI_DEBUG          STD_ON
 #define MQTT_DEBUG          STD_ON
 #define DHT22_DEBUG         STD_ON
-
+#define LDR_1_DEBUG         STD_ON
+#define MQ5_1_DEBUG         STD_ON
 /* =========================
  * UART Configuration
  * ========================= */
@@ -127,17 +129,30 @@
 /* =========================
  * LED Configuration
  * ========================= */
-#define LED_1_PIN           34
-#define LED_2_PIN           35
+#define LED_1_PIN           2
+#define LED_2_PIN           5
 #define LED_3_PIN           32
 
 
 /* =========================
- * DHT22 Configuration
+ * SENSORS Configuration
  * ========================= */
 
 #define DHT22_PIN          35
 #define DHT22_TYPE         DHT22
+
+#define MQ5_PIN             34
+#define LDR_PIN             35
+
+
+#define ADC_MIN_RAW 0
+#define ADC_MAX_RAW 4095
+#define MQ5_MIN_MAPPED 0
+#define MQ5_MAX_MAPPED 255
+#define ADC_RESOLUTION 12
+#define LDR_SAMPLE_COUNT 5
+#define voltage  3.3
+
 /* =========================
  * WiFi Configuration
  * ========================= */
