@@ -11,6 +11,7 @@
 #define DEBUG_STACK_MONITOR     0  // Monitor stack usage
 #define DEBUG_TIMING            0  // Show timing information
 #define DEBUG_QUEUE_STATUS      0  // Monitor queue status
+#define DEBUG_HUM_SENSOR        1  // Debug temperature sensor task
 
 // Stack monitoring interval (ms)
 #define STACK_MONITOR_INTERVAL_MS  10000
@@ -48,6 +49,8 @@
 #define TEMP_CHANGE_THRESHOLD        0.1f   // Celsius
 #define HYSTERESIS_VALUE             0.2f   // Celsius
 #define INVALID_TEMP_VALUE           -100.0f
+#define INVALID_HUMDITY_VALUE        -100.0f
+
 #define TARGET_TEMP_THRESHOLD  1   // degrees Celsius
 
 // Fan state thresholds
@@ -88,8 +91,6 @@
 #define FAN_CONTROL_PRIORITY    2
 #define MQTT_PRIORITY           1
 #define WIFI_PRIORITY           1
-
-
 
 // Event bits
 #define TEMP_UPDATED_BIT      (1 << 0)

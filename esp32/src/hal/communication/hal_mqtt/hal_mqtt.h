@@ -6,7 +6,9 @@
 // Make mqttClient accessible to other modules (if needed)
 typedef enum {
     MQTT_PUB_TEMP,
-    MQTT_PUB_TARGET
+    MQTT_PUB_TARGET,
+    MQTT_PUB_HUM
+
 } mqtt_pub_type_t;
 
 typedef struct {

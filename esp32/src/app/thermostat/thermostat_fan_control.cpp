@@ -1,11 +1,14 @@
+#include <Arduino.h>
+
 #include "thermostat_fan_control.h"
 #include "../../app_cfg.h"
-#include "../../hal/sensors/hal_potentiometer/hal_potentiometer.h"
-#include "../../hal/sensors/hal_dht/hal_dht.h"
 
+#include "../../hal/sensors/hal_potentiometer/hal_potentiometer.h"
+#include "../../hal/sensors/hal_mq5/hal_mq5.h"
+#include "../../hal/sensors/hal_dht/hal_dht.h"
 #include "../../hal/hal_led/hal_led.h"
 #include "../../hal/communication/hal_mqtt/hal_mqtt.h"
-#include <Arduino.h>
+
 #include "thermostat_config.h"
 #include "thermostat_types.h"
 
@@ -46,7 +49,8 @@ void Thermostat_Init_Hardware(void)
 {
     // Initialize all three POTs (you'll need to modify POT.cpp to support multiple instances)
     POT_init();
-  //  DHT22_INIT();
+    //MQ5_1_init();
+    DHT22_INIT();
     // Initialize LEDs
     LED_init(LED_LOW_SPEED);
     LED_init(LED_MED_SPEED);

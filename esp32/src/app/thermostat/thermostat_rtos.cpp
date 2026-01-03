@@ -3,13 +3,13 @@
 #include "thermostat_types.h"
 #include "thermostat_fan_control.h"
 
+#include "../../hal/sensors/hal_mq5/hal_mq5.h"
 #include "../../hal/communication/hal_wifi/hal_wifi.h"
 #include "../../hal/communication/hal_mqtt/hal_mqtt.h"
 #include "../../hal/sensors/hal_dht/hal_dht.h"
 #include "../../hal/sensors/hal_potentiometer/hal_potentiometer.h"
 #include "../../app_cfg.h"
-
-
+#include "../room/room_rtos.h"
 // ==================== NAMING CONVENTIONS ====================
 // Functions:     PascalCase or camelCase (choose one)
 // Variables:     camelCase for locals, g_camelCase for globals
@@ -122,8 +122,6 @@ void thermostatMqttFanSpeedEventSet(void) {
         DEBUG_PRINT(MQTT, "Event set: FAN_SPEED_UPDATED_BIT");
     }
 }
-
-
 
 // ==================== INITIALIZATION ====================
 /**
@@ -251,10 +249,14 @@ void InitThermostat(void) {
  * @param pvParameters Unused
  */
 void Task_TemperatureSensor(void* pvParameters) {
+
     (void)pvParameters;
-    
-    float temperature = INVALID_TEMP_VALUE;
-    float last_temp = INVALID_TEMP_VALUE;
+
+    float temperature     = INVALID_TEMP_VALUE;
+    float humidity        = INVALID_HUMDITY_VALUE;   ///ReadHumiditySensor
+    float last_temp       = INVALID_TEMP_VALUE;
+    float last_humidity   = INVALID_HUMDITY_VALUE;
+
     mqtt_pub_msg_t msg;
     
     #if DEBUG_TIMING
@@ -276,7 +278,8 @@ void Task_TemperatureSensor(void* pvParameters) {
         #endif
         
         // Read sensor (simulated with random for testing)
-      //  temperature = random(1500, 3500) / 100.0f;  // Random 15-35°C
+        temperature = ReadTemperatureSensor(); // Random 15-35°C
+        humidity    = ReadHumiditySensor   ();
         
         DEBUG_PRINT(TEMP_SENSOR, "[%u] Temp=%.2f°C", g_tempSensorStats.taskRunCount, temperature);
         
@@ -286,7 +289,7 @@ void Task_TemperatureSensor(void* pvParameters) {
             last_temp = temperature;
             
             // Prepare MQTT message
-            msg.type = MQTT_PUB_TEMP;
+            msg.type  = MQTT_PUB_TEMP;
             msg.value = temperature;
             
             // Send to queue
@@ -299,9 +302,23 @@ void Task_TemperatureSensor(void* pvParameters) {
             // Signal fan control
             xEventGroupSetBits(thermostatEventGroup, TEMP_UPDATED_BIT);
         }
-        
 
-        
+        if (fabs(humidity - last_humidity) >= TARGET_TEMP_THRESHOLD) {
+            Thermostat_StoreTemp(temperature);
+            last_humidity = humidity;
+            
+            // Prepare MQTT message
+            msg.type = MQTT_PUB_HUM;
+            msg.value = humidity;
+            
+            // Send to queue
+            if (xQueueSend(mqttPublishQueue, &msg, pdMS_TO_TICKS(100)) == pdPASS) {
+                DEBUG_PRINT(HUM_SENSOR, "→ MQTT Queue");
+            } else {
+                DEBUG_PRINT(HUM_SENSOR, "✗ Queue FULL");
+            }
+            
+        }    
         #if DEBUG_STACK_MONITOR
         static uint32_t lastStackCheck = 0;
         if (millis() - lastStackCheck > STACK_MONITOR_INTERVAL_MS) {
@@ -313,6 +330,81 @@ void Task_TemperatureSensor(void* pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(TEMP_SENSOR_SAMPLE_RATE_MS));
     }
 }
+
+
+
+
+
+/**
+ * @brief Task: Read user input (potentiometer) for target temperature
+ * @param pvParameters Unused
+ */
+void Task_GasSensor(void* pvParameters) {
+    (void)pvParameters;
+    
+    float gas_value = 0;
+    float last_gas_value = INVALID_TEMP_VALUE;
+    mqtt_pub_msg_t msg;
+    
+    #if DEBUG_TIMING
+    uint32_t startTime = 0;
+    uint32_t executionTime = 0;
+    #endif
+    
+    DEBUG_PRINT(USER_INPUT, "Started");
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    
+    while (1) {
+        #if DEBUG_TIMING
+        startTime = millis();
+        #endif
+        
+        #if DEBUG_ENABLED
+        g_userInputStats.taskRunCount++;
+        g_userInputStats.lastRunTime = millis();
+        #endif
+        
+        // Read potentiometer
+        MQ5_1_main();
+        gas_value = MQ5_1_value();
+        
+        
+        // Check if target changed significantly
+        if (fabs(gas_value - last_gas_value) >= TARGET_TEMP_THRESHOLD) {
+            last_gas_value = gas_value;
+            
+            // Prepare MQTT message
+            msg.type = MQTT_PUB_TARGET;
+            msg.value = gas_value;
+            
+            // Send to queue
+            if (xQueueSend(mqttPublishQueue, &msg, pdMS_TO_TICKS(100)) == pdPASS) {
+                DEBUG_PRINT(USER_INPUT, "→ MQTT Queue");
+            } else {
+                DEBUG_PRINT(USER_INPUT, "✗ Queue FULL");
+            }
+            
+            // Signal fan control
+            xEventGroupSetBits(thermostatEventGroup, TARGET_UPDATED_BIT);
+        }
+        
+
+        
+        #if DEBUG_STACK_MONITOR
+        static uint32_t lastStackCheck = 0;
+        if (millis() - lastStackCheck > STACK_MONITOR_INTERVAL_MS) {
+            Debug_PrintStackUsage("UserInput", userInputTaskHandle, &g_userInputStats);
+            lastStackCheck = millis();
+        }
+        #endif
+        
+        vTaskDelay(pdMS_TO_TICKS(INPUT_SAMPLE_RATE_MS));
+    }
+}
+
+
+
+
 
 /**
  * @brief Task: Read user input (potentiometer) for target temperature
@@ -534,6 +626,8 @@ void Task_Mqtt(void *pvParameters) {
                 subscribed = true;
             }
 
+            Room_RTOS_MQTTWarrper();
+
             // Check queue
             if (xQueueReceive(mqttPublishQueue, &msg, pdMS_TO_TICKS(200)) == pdTRUE) {
                 switch (msg.type) {
@@ -548,7 +642,13 @@ void Task_Mqtt(void *pvParameters) {
                         MQTT_Publish(MQTT_TOPIC_TARGET, payload);
                         DEBUG_PRINT(MQTT, "Pub: target=%s", payload);
                         break;
-                    
+
+                    case MQTT_PUB_HUM:
+                        snprintf(payload, sizeof(payload), "%.1f", msg.value);
+                        MQTT_Publish(MQTT_TOPIC_HUMIDITY, payload);
+                        DEBUG_PRINT(MQTT, "Pub: humidity=%s", payload);
+                        break;
+
                     default:
                         DEBUG_PRINT(MQTT, "✗ Unknown type=%d", msg.type);
                         break;

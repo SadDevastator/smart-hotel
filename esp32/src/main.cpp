@@ -1,7 +1,11 @@
 #include <Arduino.h>
+
 #include "hal/communication/hal_mqtt/hal_mqtt.h"
 #include "hal/communication/hal_wifi/hal_wifi.h"
+
 #include "app/thermostat/thermostat_rtos.h"
+#include "app/room/room_rtos.h"
+
 #include "app_cfg.h"
 
 
@@ -11,7 +15,7 @@ void setup()
     Serial.begin(9600);
     delay(1000);
     
-    Serial.println("\n=== Smart Thermostat System ===");
+    Serial.println("\n=== Smart Room System ===");
     Serial.println("Initializing...");  
 
     // Configure WiFi
@@ -31,12 +35,9 @@ void setup()
     delay(2000);
     
     InitThermostat();
+    Room_RTOS_Init();
 
     Serial.println("System ready!");
-
-
-    MQTT_SubscribeAll();
-
     vTaskDelete(NULL); //remove void loop() 
 
 }

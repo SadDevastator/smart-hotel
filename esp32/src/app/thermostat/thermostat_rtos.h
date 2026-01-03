@@ -7,7 +7,6 @@
 #include "freertos/event_groups.h"
 
 
-#define TARGET_TEMP_CHANGED_BIT (1 << 0)
 
 // ======= Initialization =======
 void InitThermostat();

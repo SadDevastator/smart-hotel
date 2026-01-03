@@ -33,7 +33,7 @@ void MQ5_1_main(void)
         lastReadTime = millis();
         MQ5_value = SensorH_ReadValue(config.channel);
         MQ5_value = constrain(MQ5_value, MQ5_MIN_RAW, MQ5_MAX_RAW);
-       outputValue = map(MQ5_value, MQ5_MIN_RAW, MQ5_MAX_RAW, 
+        outputValue = map(MQ5_value, MQ5_MIN_RAW, MQ5_MAX_RAW, 
                   MQ5_MIN_MAPPED, MQ5_MAX_MAPPED);
         DEBUG_PRINT("MQ5 Value: ");
         DEBUG_PRINTLN(outputValue);

@@ -138,10 +138,10 @@
  * SENSORS Configuration
  * ========================= */
 
-#define DHT22_PIN          35
+#define DHT22_PIN           14
 #define DHT22_TYPE         DHT22
 
-#define MQ5_PIN             34
+#define MQ5_PIN             33
 #define LDR_PIN             35
 
 
@@ -160,8 +160,8 @@
 /* =========================
  * WiFi Configuration
  * ========================= */
-#define WIFI_SSID           "WE_8C5F0A"
-#define WIFI_PASSWORD       "j8m13979"
+#define WIFI_SSID           "maha"
+#define WIFI_PASSWORD       "000000000"
 
 
 /* =========================
@@ -173,6 +173,18 @@
 /* =========================
  * MQTT Topics
  * ========================= */
+// MQTT Topics
+
+#define ROOM_TOPIC_LED1_CTRL    "room/led1/control"
+#define ROOM_TOPIC_LED2_CTRL    "room/led2/control"
+#define ROOM_TOPIC_LED1_STATUS  "room/led1/status"
+#define ROOM_TOPIC_LED2_STATUS  "room/led2/status"
+#define ROOM_TOPIC_LDR_RAW      "room/ldr/raw"
+#define ROOM_TOPIC_LDR_PERCENT  "room/ldr/percentage"
+#define ROOM_TOPIC_MODE_CTRL    "room/mode/control"      // Set mode: AUTO/MANUAL/OFF
+#define ROOM_TOPIC_MODE_STATUS  "room/mode/status"       // Current mode status
+#define ROOM_TOPIC_AUTO_DIM     "room/auto_dim/control"  // Deprecated - use mode instead
+
 #define MQTT_TOPIC_TEMP         "home/thermostat/temperature"
 #define MQTT_TOPIC_HUMIDITY     "home/thermostat/humidity"
 #define MQTT_TOPIC_TARGET       "home/thermostat/target"

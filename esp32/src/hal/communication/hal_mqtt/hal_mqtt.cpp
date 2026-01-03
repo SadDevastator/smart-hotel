@@ -3,6 +3,11 @@
 #include "../hal_wifi/hal_wifi.h"
 #include "../../../app/thermostat/thermostat_fan_control.h"
 #include "../../../app_cfg.h"
+#include "../../../app/room/room_config.h"
+#include "../../../app/room/room_types.h"
+#include "../../../app/room/room_logic.h"
+#include "../../../app/room/room_rtos.h"
+#include "helpers.h"
 
 static WiFiClient wifiClient;
 static PubSubClient mqttClient(wifiClient);
@@ -86,7 +91,7 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length)
  */
 void MQTT_MessageCallback(char* topic, uint8_t* payload, unsigned int length) {
     // Create null-terminated string from payload
-    char message[64] = {0};
+    char message[128] = {0};  // Increased size for room messages
     if (length >= sizeof(message)) {
         length = sizeof(message) - 1;
     }
@@ -95,7 +100,10 @@ void MQTT_MessageCallback(char* topic, uint8_t* payload, unsigned int length) {
     
     Serial.printf("[MQTT RX] Topic: %s, Payload: %s\n", topic, message);
     
-    // Handle different topics
+    // ========================================================================
+    // THERMOSTAT TOPICS
+    // ========================================================================
+    
     if (strcmp(topic, MQTT_TOPIC_TARGET) == 0) {
         // Set target temperature from MQTT
         float target = atof(message);
@@ -116,10 +124,10 @@ void MQTT_MessageCallback(char* topic, uint8_t* payload, unsigned int length) {
         const char* mode_name = (mode == THERMOSTAT_MODE_OFF) ? "OFF" :
                                 (mode == THERMOSTAT_MODE_AUTO) ? "AUTO" :
                                 (mode == THERMOSTAT_MODE_MANUAL) ? "MANUAL" : "UNKNOWN";
-        Serial.printf("[MQTT] Mode set to: %s\n", mode_name);
+        Serial.printf("[MQTT] Thermostat mode set to: %s\n", mode_name);
         
         // Publish mode status confirmation
-        //MQTT_Publish(MQTT_TOPIC_, mode_name);
+        //MQTT_Publish(MQTT_TOPIC_MODE_STATUS, mode_name);
     }
     else if (strcmp(topic, MQTT_TOPIC_SET_SPEED) == 0) {
         // Set manual fan speed from MQTT (only works in MANUAL mode)
@@ -137,11 +145,91 @@ void MQTT_MessageCallback(char* topic, uint8_t* payload, unsigned int length) {
             Serial.printf("[MQTT] Fan speed set to: %s\n", speed_name);
             
             // Publish speed status confirmation
-          //  MQTT_Publish(MQTT_TOPIC_FAN_SPEED_STATUS, speed_name);
+            //MQTT_Publish(MQTT_TOPIC_FAN_SPEED_STATUS, speed_name);
         } else {
             Serial.printf("[MQTT] Cannot set fan speed - not in MANUAL mode (current: %d)\n", current_mode);
         }
     }
+    
+    // ========================================================================
+    // ROOM LIGHTING TOPICS
+    // ========================================================================
+    
+    else if (strcmp(topic, ROOM_TOPIC_MODE_CTRL) == 0) {
+        // Set room lighting mode from MQTT
+        Room_Mode_t room_mode = Room_Logic_ParseMode(message);
+        if (room_mode != 0xFF) {  // Valid mode
+            Room_Logic_SetMode(room_mode);
+            const char* mode_str = Room_Logic_GetModeString();
+            Serial.printf("[MQTT] Room mode set to: %s\n", mode_str);
+            
+            // Publish mode status confirmation
+            Room_RTOS_PublishModeStatus();
+        } else {
+            Serial.printf("[MQTT] Invalid room mode: %s\n", message);
+        }
+    }
+    else if (strcmp(topic, ROOM_TOPIC_LED1_CTRL) == 0) {
+        // Control LED1 (only works in MANUAL mode)
+        Room_Mode_t current_room_mode = Room_Logic_GetMode();
+        
+        if (current_room_mode != ROOM_MODE_MANUAL) {
+            Serial.printf("[MQTT] Cannot control LED1 - Room mode is %s (need MANUAL)\n", 
+                         Room_Logic_GetModeString());
+            return;
+        }
+        
+        Room_LED_State_t state = Room_Logic_ParseLEDState(message);
+        if (state != 0xFF) {  // Valid state
+            Room_Logic_SetLED(ROOM_LED_1, state, ROOM_CONTROL_MQTT);
+            Serial.printf("[MQTT] LED1 set to: %s\n", state == ROOM_LED_ON ? "ON" : "OFF");
+            
+            // Publish LED status confirmation
+            Room_RTOS_PublishLEDStatus(ROOM_LED_1);
+        } else {
+            Serial.printf("[MQTT] Invalid LED1 command: %s\n", message);
+        }
+    }
+    else if (strcmp(topic, ROOM_TOPIC_LED2_CTRL) == 0) {
+        // Control LED2 (only works in MANUAL mode)
+        Room_Mode_t current_room_mode = Room_Logic_GetMode();
+        
+        if (current_room_mode != ROOM_MODE_MANUAL) {
+            Serial.printf("[MQTT] Cannot control LED2 - Room mode is %s (need MANUAL)\n", 
+                         Room_Logic_GetModeString());
+            return;
+        }
+        
+        Room_LED_State_t state = Room_Logic_ParseLEDState(message);
+        if (state != 0xFF) {  // Valid state
+            Room_Logic_SetLED(ROOM_LED_2, state, ROOM_CONTROL_MQTT);
+            Serial.printf("[MQTT] LED2 set to: %s\n", state == ROOM_LED_ON ? "ON" : "OFF");
+            
+            // Publish LED status confirmation
+            Room_RTOS_PublishLEDStatus(ROOM_LED_2);
+        } else {
+            Serial.printf("[MQTT] Invalid LED2 command: %s\n", message);
+        }
+    }
+    else if (strcmp(topic, ROOM_TOPIC_AUTO_DIM) == 0) {
+        // Deprecated: Auto-dim control (maps to room mode)
+        Room_AutoDimMode_t autodim_mode = Room_Logic_ParseAutoDimMode(message);
+        if (autodim_mode != 0xFF) {  // Valid mode
+            Room_Logic_SetAutoDimMode(autodim_mode);  // This maps to AUTO/MANUAL mode
+            Serial.printf("[MQTT] Auto-dim set to: %s\n", 
+                         autodim_mode == ROOM_AUTO_DIM_ENABLED ? "ENABLED" : "DISABLED");
+            
+            // Publish mode status confirmation
+            Room_RTOS_PublishModeStatus();
+        } else {
+            Serial.printf("[MQTT] Invalid auto-dim command: %s\n", message);
+        }
+    }
+    
+    // ========================================================================
+    // UNKNOWN TOPIC
+    // ========================================================================
+    
     else {
         Serial.printf("[MQTT] Unknown topic: %s\n", topic);
     }
@@ -214,6 +302,13 @@ void MQTT_SubscribeTopics(void)
         mqttClient.subscribe(MQTT_TOPIC_TEMP);
         mqttClient.subscribe(MQTT_TOPIC_SET_SPEED);
         mqttClient.subscribe(MQTT_TOPIC_CONTROL);
+        mqttClient.subscribe(MQTT_TOPIC_HUMIDITY);
+        
+        mqttClient.subscribe(ROOM_TOPIC_MODE_CTRL);
+        mqttClient.subscribe(ROOM_TOPIC_LED1_CTRL);
+        mqttClient.subscribe(ROOM_TOPIC_LED2_CTRL);
+    //    mqttClient.subscribe(ROOM_TOPIC_AUTO_DIM);
+
         Serial.println("[MQTT] Subscribed to target & control topics");
     }
 }
