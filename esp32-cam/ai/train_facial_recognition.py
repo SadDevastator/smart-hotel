@@ -25,7 +25,7 @@ CONFIG = {
     'img_size': (96, 96),  # Smaller input size for ESP32 (saves memory)
     'batch_size': 16,
     'epochs': 200,  # More epochs for better convergence
-    'validation_split': 0.15,  # 15% for validation
+    'validation_split': 0.2,  # 15% for validation
     'learning_rate': 0.0001,  # Learning rate for loss optimization
     'mobilenet_alpha': 0.5,  # Model size (~1.5MB model)
     'augmentation_target': 200,  # Moderate augmentation
@@ -305,8 +305,9 @@ def build_transfer_learning_model(num_classes, img_size):
 # ==================== TRAINING ====================
 def train_model(X, y, class_labels, model_dir):
     """
-    Loss-focused training approach.
-    Monitors and optimizes validation loss instead of accuracy.
+    Loss-focused training approach with accuracy monitoring.
+    Primary focus: minimize validation loss
+    Secondary metric: track accuracy for reference
     """
     
     num_classes = len(class_labels)
@@ -329,15 +330,15 @@ def train_model(X, y, class_labels, model_dir):
     print(f"\nModel summary:")
     model.summary()
     
-    # Compile - focus on LOSS optimization
+    # Compile - focus on LOSS optimization, track ACCURACY for reference
     print("\n" + "="*60)
-    print("TRAINING (Loss-focused optimization)")
+    print("TRAINING (Loss-focused optimization + Accuracy tracking)")
     print("="*60)
     
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=CONFIG['learning_rate']),
-        loss='sparse_categorical_crossentropy'
-        # Loss is automatically tracked, no need to add it to metrics
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']  # Track accuracy but don't optimize for it
     )
     
     # Loss-focused callbacks
@@ -360,12 +361,14 @@ def train_model(X, y, class_labels, model_dir):
             verbose=1,
             mode='min'
         ),
-        # Custom callback to log loss every epoch
+        # Custom callback to log both loss and accuracy every epoch
         keras.callbacks.LambdaCallback(
             on_epoch_end=lambda epoch, logs: print(
                 f"Epoch {epoch+1}: "
                 f"train_loss={logs['loss']:.4f}, "
-                f"val_loss={logs['val_loss']:.4f}"
+                f"val_loss={logs['val_loss']:.4f}, "
+                f"train_acc={logs['accuracy']:.4f}, "
+                f"val_acc={logs['val_accuracy']:.4f}"
             )
         )
     ]
@@ -379,12 +382,17 @@ def train_model(X, y, class_labels, model_dir):
         verbose=1
     )
     
-    # Report final losses
+    # Report final metrics
     final_train_loss = history.history.get('loss', [float('inf')])[-1]
     final_val_loss = history.history.get('val_loss', [float('inf')])[-1]
+    final_train_acc = history.history.get('accuracy', [0])[-1]
+    final_val_acc = history.history.get('val_accuracy', [0])[-1]
+    
     print(f"\n✓ Training complete.")
     print(f"  Final train loss: {final_train_loss:.4f}")
     print(f"  Final val loss: {final_val_loss:.4f}")
+    print(f"  Final train accuracy: {final_train_acc*100:.2f}%")
+    print(f"  Final val accuracy: {final_val_acc*100:.2f}%")
     
     # Save Keras model
     keras_model_path = os.path.join(model_dir, 'face_recognition_model.keras')
@@ -397,11 +405,17 @@ def train_model(X, y, class_labels, model_dir):
         json.dump(class_labels, f, indent=2)
     print(f"✓ Class labels saved to {labels_path}")
     
-    # Save training history (loss curves)
+    # Save training history (loss AND accuracy curves)
     history_path = os.path.join(model_dir, 'training_history.json')
     history_dict = {
         'loss': [float(x) for x in history.history.get('loss', [])],
-        'val_loss': [float(x) for x in history.history.get('val_loss', [])]
+        'val_loss': [float(x) for x in history.history.get('val_loss', [])],
+        'accuracy': [float(x) for x in history.history.get('accuracy', [])],
+        'val_accuracy': [float(x) for x in history.history.get('val_accuracy', [])],
+        'final_train_loss': float(final_train_loss),
+        'final_val_loss': float(final_val_loss),
+        'final_train_accuracy': float(final_train_acc),
+        'final_val_accuracy': float(final_val_acc)
     }
     with open(history_path, 'w') as f:
         json.dump(history_dict, f, indent=2)
@@ -484,21 +498,16 @@ def convert_to_tflite(model, model_dir, X_representative, optimize=True):
 
 # ==================== EVALUATION ====================
 def evaluate_model(model, X, y):
-    """Evaluate model focusing on loss"""
+    """Evaluate model - primary focus on loss, secondary focus on accuracy"""
     print("\n" + "="*60)
-    print("MODEL EVALUATION (Loss-focused)")
+    print("MODEL EVALUATION")
     print("="*60)
     
-    loss = model.evaluate(X, y, verbose=0)
-    print(f"Validation Loss: {loss:.4f}")
+    loss, accuracy = model.evaluate(X, y, verbose=0)
+    print(f"Validation Loss: {loss:.4f} (PRIMARY METRIC)")
+    print(f"Validation Accuracy: {accuracy*100:.2f}% (REFERENCE METRIC)")
     
-    # Also calculate accuracy for reference (but don't optimize for it)
-    predictions = model.predict(X, verbose=0)
-    pred_classes = np.argmax(predictions, axis=1)
-    accuracy = np.mean(pred_classes == y)
-    print(f"Accuracy (reference only): {accuracy*100:.2f}%")
-    
-    return loss
+    return loss, accuracy
 
 # ==================== MAIN ====================
 def debug_dataset(X, y, class_labels):
@@ -547,7 +556,8 @@ def main():
     """Main training pipeline"""
     
     print("\n" + "="*60)
-    print("FACIAL RECOGNITION TRAINING PIPELINE (LOSS-FOCUSED)")
+    print("FACIAL RECOGNITION TRAINING PIPELINE")
+    print("PRIMARY: Loss Optimization | SECONDARY: Accuracy Tracking")
     print("="*60)
     print(f"TensorFlow version: {tf.__version__}")
     print(f"GPU available: {len(tf.config.list_physical_devices('GPU')) > 0}")
@@ -576,37 +586,33 @@ def main():
     if CONFIG['debug']:
         debug_dataset(X, y, class_labels)
     
-    # Augment dataset with CLASS BALANCING (handles imbalanced classes)
-    # Target: moderate augmentation - too much creates unrealistic samples
+    # Augment dataset with CLASS BALANCING
     X, y = augment_dataset_balanced(X, y, class_labels, 
                                     target_samples_per_class=CONFIG['augmentation_target'])
     
-    # Train (loss-focused)
+    # Train (loss-focused with accuracy tracking)
     model, history, (X_val, y_val) = train_model(X, y, class_labels, model_dir)
     
     # Evaluate on validation set
-    final_loss = evaluate_model(model, X_val, y_val)
+    final_loss, final_accuracy = evaluate_model(model, X_val, y_val)
     
-    # Convert to TFLite (pass X for representative dataset calibration)
+    # Convert to TFLite
     tflite_path = convert_to_tflite(model, model_dir, X_representative=X, optimize=True)
     
     # Summary
     print("\n" + "="*60)
     print("TRAINING COMPLETE")
     print("="*60)
-    print(f"\nFinal validation loss: {final_loss:.4f}")
-    print(f"\nOutput files in: {model_dir}")
+    print(f"\n📊 Final Metrics:")
+    print(f"  Validation Loss: {final_loss:.4f} (PRIMARY)")
+    print(f"  Validation Accuracy: {final_accuracy*100:.2f}% (REFERENCE)")
+    print(f"\n📁 Output files in: {model_dir}")
     print(f"  - face_recognition_model.keras (Keras format)")
     print(f"  - face_recognition_int8.tflite (For ESP32 TFLite Micro)")
     print(f"  - class_labels.json (Person labels)")
-    print(f"  - training_history.json (Loss curves)")
-    print(f"\nNext steps:")
-    print(f"  1. Plot loss curves from training_history.json")
-    print(f"  2. Test the model with new images")
-    print(f"  3. Run: python convert_tflite_to_c.py <model_dir>/face_recognition_int8.tflite")
-    print(f"  4. Copy model_data.h to ESP32 firmware folder")
-    
-    return model_dir, tflite_path
-
-if __name__ == '__main__':
-    output_dir, tflite_file = main()
+    print(f"  - training_history.json (Loss + Accuracy curves)")
+    print(f"\n📈 Next steps:")
+    print(f"  1. Plot loss AND accuracy curves from training_history.json")
+    print(f"  2. Test the model with test_camera.py")
+    print(f"  3. Run: python3 convert_tflite_to_c.py <model_dir>/face_recognition_int8.tflite")
+    print(f"  4. Copy model_data.h to ESP32 firmware
