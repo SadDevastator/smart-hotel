@@ -2,106 +2,6 @@
 
 {% block title %}DW Registration Card - Smart Hotel{% endblock %}
 
-{% block head %}
-<style>
-.reg-page {
-    max-width: 700px;
-    margin: 0 auto;
-}
-.reg-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid var(--border);
-}
-.reg-header .icon-box {
-    flex-shrink: 0;
-}
-.reg-header h1 {
-    margin-bottom: 0.25rem;
-    font-size: 1.5rem;
-}
-.reg-header p {
-    margin: 0;
-    color: var(--text-muted);
-}
-.section-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--brand);
-    margin: 1.5rem 0 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid var(--accent);
-}
-.form-label {
-    font-weight: 500;
-    color: var(--text);
-}
-.form-label.required::after {
-    content: " *";
-    color: #dc3545;
-}
-.signature-options {
-    display: flex;
-    gap: 1rem;
-    margin-top: 0.5rem;
-}
-.signature-option {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 1rem;
-    background: var(--bg);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-.signature-option:hover {
-    border-color: var(--accent);
-}
-.signature-option.selected {
-    border-color: var(--accent);
-    background: rgba(201, 169, 98, 0.08);
-}
-.signature-option input {
-    display: none;
-}
-.signature-option svg {
-    color: var(--brand);
-    flex-shrink: 0;
-}
-.signature-option .option-text {
-    flex: 1;
-}
-.signature-option .option-text strong {
-    display: block;
-    margin-bottom: 0.25rem;
-}
-.signature-option .option-text span {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-}
-#accompany-container .input-group {
-    margin-bottom: 0.5rem;
-}
-.info-box {
-    background: rgba(201, 169, 98, 0.1);
-    border-left: 4px solid var(--accent);
-    padding: 1rem;
-    margin-bottom: 1.5rem;
-    border-radius: 0 var(--radius) var(--radius) 0;
-}
-.info-box p {
-    margin: 0;
-    color: var(--text);
-}
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="reg-page">
     <div class="card p-4 p-md-5">
@@ -116,8 +16,13 @@
         </div>
         
         <div class="info-box">
-            <p><strong>📋 Guest Registration Form</strong><br>
-            Fields marked with * are required. Information from your passport has been pre-filled where available.</p>
+            <div class="d-flex align-items-start gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" style="flex-shrink: 0; margin-top: 2px;"><path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0v-1zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0V7zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0V9z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
+                <div>
+                    <strong>Guest Registration Form</strong><br>
+                    <span class="text-muted">Fields marked with * are required. Information from your passport has been pre-filled where available.</span>
+                </div>
+            </div>
         </div>
 
         <form method="post" id="registrationForm">

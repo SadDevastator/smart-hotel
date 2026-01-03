@@ -2,50 +2,6 @@
 
 {% block title %}Document Signing - Smart Hotel{% endblock %}
 
-{% block head %}
-<style>
-.sign-page {
-    max-width: 600px;
-    margin: 0 auto;
-}
-.sign-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid var(--border);
-}
-.sign-header .icon-box {
-    flex-shrink: 0;
-}
-.sign-header h1 {
-    margin-bottom: 0.25rem;
-    font-size: 1.5rem;
-}
-.sign-header p {
-    margin: 0;
-    color: var(--text-muted);
-}
-.print-area {
-    background: var(--bg);
-    border: 2px dashed var(--border);
-    border-radius: var(--radius-lg);
-    padding: 2.5rem;
-    text-align: center;
-    margin-bottom: 1.5rem;
-    transition: all 0.3s ease;
-}
-.print-area:hover {
-    border-color: var(--accent);
-    background: rgba(201, 169, 98, 0.05);
-}
-.print-area .icon-box {
-    margin: 0 auto 1rem;
-}
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="sign-page">
     <div class="card p-4 p-md-5">

@@ -1,15 +1,23 @@
 from django.contrib.auth import views as auth_views, update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm
-from django.views.generic import TemplateView, FormView, View
+from django.views.generic import TemplateView, FormView, View, ListView
 from django.urls import reverse_lazy, reverse
 from django.shortcuts import redirect, get_object_or_404
 from django.contrib import messages
 from django.http import JsonResponse
 from django import forms
+import secrets
+import string
 
 from .models import User, PasswordResetToken
 from dashboard.telegram import send_telegram_message
+
+
+class AdminRequiredMixin(UserPassesTestMixin):
+    """Only allow admin users"""
+    def test_func(self):
+        return self.request.user.is_authenticated and self.request.user.role == User.ROLE_ADMIN
 
 
 class AdminOrMonitorRequiredMixin(UserPassesTestMixin):
@@ -207,3 +215,146 @@ class ResetPasswordView(FormView):
 class ResetPasswordDoneView(TemplateView):
     """Confirmation that password was reset"""
     template_name = 'accounts/reset_password_done.html'
+
+
+# ===== Staff Management Views (Admin Only) =====
+
+class StaffManagementView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    """List and manage staff accounts"""
+    template_name = 'accounts/staff_management.html'
+    context_object_name = 'staff_users'
+    
+    def get_queryset(self):
+        return User.objects.filter(
+            role__in=[User.ROLE_ADMIN, User.ROLE_MONITOR]
+        ).order_by('-date_joined')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['role_choices'] = [
+            (User.ROLE_ADMIN, 'Administrator'),
+            (User.ROLE_MONITOR, 'Monitor'),
+        ]
+        return context
+
+
+class CreateStaffForm(forms.Form):
+    username = forms.CharField(
+        max_length=150,
+        widget=forms.TextInput(attrs={'class': 'form-input', 'placeholder': 'Username'})
+    )
+    email = forms.EmailField(
+        required=False,
+        widget=forms.EmailInput(attrs={'class': 'form-input', 'placeholder': 'Email (optional)'})
+    )
+    role = forms.ChoiceField(
+        choices=[(User.ROLE_ADMIN, 'Administrator'), (User.ROLE_MONITOR, 'Monitor')],
+        widget=forms.Select(attrs={'class': 'form-input'})
+    )
+    
+    def clean_username(self):
+        username = self.cleaned_data['username']
+        if User.objects.filter(username=username).exists():
+            raise forms.ValidationError('This username is already taken.')
+        return username
+
+
+class CreateStaffView(LoginRequiredMixin, AdminRequiredMixin, FormView):
+    """Create a new staff account"""
+    template_name = 'accounts/create_staff.html'
+    form_class = CreateStaffForm
+    success_url = reverse_lazy('accounts:staff_management')
+    
+    def form_valid(self, form):
+        # Generate a random password
+        password = ''.join(secrets.choice(string.ascii_letters + string.digits + '!@#$%') for _ in range(12))
+        
+        user = User.objects.create_user(
+            username=form.cleaned_data['username'],
+            email=form.cleaned_data.get('email', ''),
+            password=password,
+            role=form.cleaned_data['role'],
+            created_by=self.request.user
+        )
+        
+        # Send credentials via Telegram
+        message = (
+            f"<b>Smart Hotel - New Staff Account Created</b>\n\n"
+            f"Role: <b>{user.get_role_display()}</b>\n"
+            f"Username: <code>{user.username}</code>\n"
+            f"Password: <code>{password}</code>\n\n"
+            f"Please change this password after first login."
+        )
+        send_telegram_message(message)
+        
+        messages.success(
+            self.request, 
+            f'Staff account "{user.username}" created successfully. Credentials sent via Telegram.'
+        )
+        return super().form_valid(form)
+
+
+class AdminResetPasswordView(LoginRequiredMixin, AdminRequiredMixin, View):
+    """Admin can reset any staff user's password"""
+    
+    def post(self, request, user_id):
+        try:
+            user = get_object_or_404(User, pk=user_id)
+            
+            # Cannot reset own password this way
+            if user == request.user:
+                return JsonResponse({'error': 'Use the change password page for your own account.'}, status=400)
+            
+            # Cannot reset guest passwords this way
+            if user.role == User.ROLE_GUEST:
+                return JsonResponse({'error': 'Guest passwords should be reset via the guest management page.'}, status=400)
+            
+            # Generate new password
+            new_password = ''.join(secrets.choice(string.ascii_letters + string.digits + '!@#$%') for _ in range(12))
+            user.set_password(new_password)
+            user.save()
+            
+            # Send via Telegram
+            message = (
+                f"<b>Smart Hotel - Password Reset by Admin</b>\n\n"
+                f"Account: <b>{user.username}</b>\n"
+                f"New Password: <code>{new_password}</code>\n\n"
+                f"Reset by: {request.user.username}\n"
+                f"Please change this password after login."
+            )
+            send_telegram_message(message)
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': f'Password reset for {user.username}. New credentials sent via Telegram.'
+            })
+            
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+class DeleteStaffView(LoginRequiredMixin, AdminRequiredMixin, View):
+    """Delete a staff account"""
+    
+    def post(self, request, user_id):
+        try:
+            user = get_object_or_404(User, pk=user_id)
+            
+            # Cannot delete own account
+            if user == request.user:
+                return JsonResponse({'error': 'You cannot delete your own account.'}, status=400)
+            
+            # Cannot delete superusers
+            if user.is_superuser:
+                return JsonResponse({'error': 'Superuser accounts cannot be deleted.'}, status=400)
+            
+            username = user.username
+            user.delete()
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': f'Account "{username}" has been deleted.'
+            })
+            
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)

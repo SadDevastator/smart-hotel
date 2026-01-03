@@ -1,0 +1,284 @@
+{% extends 'base.html' %}
+
+{% block title %}Staff Management - Smart Hotel{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+    }
+
+    .staff-table {
+        width: 100%;
+        border-collapse: collapse;
+        background-color: var(--color-bg-card);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+    }
+
+    .staff-table th,
+    .staff-table td {
+        padding: 16px 20px;
+        text-align: left;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .staff-table th {
+        background-color: var(--color-bg-tertiary);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-text-secondary);
+    }
+
+    .staff-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .staff-table tr:hover td {
+        background-color: var(--color-bg-elevated);
+    }
+
+    .role-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        border-radius: 20px;
+    }
+
+    .role-badge.admin {
+        background-color: rgba(234, 67, 53, 0.15);
+        color: var(--color-accent-red);
+    }
+
+    .role-badge.monitor {
+        background-color: rgba(66, 133, 244, 0.15);
+        color: var(--color-accent-blue);
+    }
+
+    .action-btn {
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 500;
+        border: none;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+    }
+
+    .action-btn.primary {
+        background-color: var(--color-primary);
+        color: white;
+    }
+
+    .action-btn.primary:hover {
+        background-color: var(--color-primary-dark);
+    }
+
+    .action-btn.warning {
+        background-color: rgba(249, 171, 0, 0.15);
+        color: var(--color-accent-orange);
+    }
+
+    .action-btn.warning:hover {
+        background-color: rgba(249, 171, 0, 0.25);
+    }
+
+    .action-btn.danger {
+        background-color: rgba(234, 67, 53, 0.15);
+        color: var(--color-accent-red);
+    }
+
+    .action-btn.danger:hover {
+        background-color: rgba(234, 67, 53, 0.25);
+    }
+
+    .create-staff-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 24px;
+        font-size: 14px;
+        font-weight: 600;
+        border: none;
+        border-radius: var(--radius-md);
+        background: linear-gradient(135deg, var(--color-accent-blue) 0%, #6366f1 100%);
+        color: white;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        box-shadow: 0 4px 14px rgba(66, 133, 244, 0.35);
+        text-decoration: none;
+    }
+
+    .create-staff-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(66, 133, 244, 0.45);
+    }
+
+    .create-staff-btn:active {
+        transform: translateY(0);
+    }
+
+    .create-staff-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .actions-cell {
+        display: flex;
+        gap: 8px;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--color-text-muted);
+    }
+
+    .alert {
+        padding: 16px 20px;
+        border-radius: var(--radius-md);
+        margin-bottom: 20px;
+        font-size: 14px;
+    }
+
+    .alert.success {
+        background-color: rgba(52, 168, 83, 0.15);
+        color: var(--color-accent-green);
+        border: 1px solid rgba(52, 168, 83, 0.3);
+    }
+
+    .alert.error {
+        background-color: rgba(234, 67, 53, 0.15);
+        color: var(--color-accent-red);
+        border: 1px solid rgba(234, 67, 53, 0.3);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="header-title">Staff Management</h1>
+    <a href="{% url 'accounts:create_staff' %}" class="create-staff-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <line x1="19" y1="8" x2="19" y2="14"/>
+            <line x1="22" y1="11" x2="16" y2="11"/>
+        </svg>
+        Add Staff Member
+    </a>
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+    <div class="alert {% if message.tags %}{{ message.tags }}{% endif %}">
+        {{ message }}
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if staff_users %}
+<table class="staff-table">
+    <thead>
+        <tr>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Created</th>
+            <th>Last Login</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for staff in staff_users %}
+        <tr data-user-id="{{ staff.id }}">
+            <td>
+                <strong>{{ staff.username }}</strong>
+                {% if staff == request.user %}<span style="color: var(--color-text-muted);"> (you)</span>{% endif %}
+            </td>
+            <td>{{ staff.email|default:"-" }}</td>
+            <td>
+                <span class="role-badge {{ staff.role }}">{{ staff.get_role_display }}</span>
+            </td>
+            <td>{{ staff.date_joined|date:"M d, Y" }}</td>
+            <td>{{ staff.last_login|date:"M d, Y H:i"|default:"Never" }}</td>
+            <td class="actions-cell">
+                {% if staff != request.user %}
+                <button class="action-btn warning" onclick="resetPassword({{ staff.id }}, '{{ staff.username }}')">
+                    Reset Password
+                </button>
+                {% if not staff.is_superuser %}
+                <button class="action-btn danger" onclick="deleteUser({{ staff.id }}, '{{ staff.username }}')">
+                    Delete
+                </button>
+                {% endif %}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No staff accounts found.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function resetPassword(userId, username) {
+    if (!confirm(`Reset password for "${username}"? The new password will be sent via Telegram.`)) {
+        return;
+    }
+    
+    fetch(`/accounts/staff/${userId}/reset-password/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(data.message);
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(err => alert('Error: ' + err));
+}
+
+function deleteUser(userId, username) {
+    if (!confirm(`Are you sure you want to delete the account "${username}"? This cannot be undone.`)) {
+        return;
+    }
+    
+    fetch(`/accounts/staff/${userId}/delete/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            document.querySelector(`tr[data-user-id="${userId}"]`).remove();
+            alert(data.message);
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(err => alert('Error: ' + err));
+}
+</script>
+{% endblock %}

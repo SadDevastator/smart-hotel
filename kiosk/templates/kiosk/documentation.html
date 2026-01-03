@@ -2,48 +2,6 @@
 
 {% block title %}Documentation - Smart Hotel{% endblock %}
 
-{% block head %}
-<style>
-.doc-page {
-    max-width: 600px;
-    margin: 0 auto;
-}
-.doc-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid var(--border);
-}
-.doc-header .icon-box {
-    flex-shrink: 0;
-}
-.doc-header h1 {
-    margin-bottom: 0.25rem;
-    font-size: 1.5rem;
-}
-.doc-header p {
-    margin: 0;
-    color: var(--text-muted);
-}
-.input-group-icon {
-    position: relative;
-}
-.input-group-icon .form-control {
-    padding-left: 3rem;
-}
-.input-group-icon .icon {
-    position: absolute;
-    left: 1rem;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-muted);
-    pointer-events: none;
-}
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="doc-page">
     <div class="card p-4 p-md-5">

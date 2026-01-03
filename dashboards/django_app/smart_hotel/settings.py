@@ -119,6 +119,10 @@ INFLUX_TOKEN = os.environ.get('INFLUX_TOKEN', 'admin-token')
 INFLUX_ORG = os.environ.get('INFLUX_ORG', 'org')
 INFLUX_BUCKET = os.environ.get('INFLUX_BUCKET', 'bucket')
 
+# MQTT Configuration
+MQTT_BROKER = os.environ.get('MQTT_BROKER', 'mosquitto')
+MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))
+
 # Telegram Configuration (placeholder for SMS)
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
