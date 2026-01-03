@@ -56,49 +56,45 @@ The Smart Hotel Dashboard is the central management interface for hotel staff. I
 
 The dashboard follows a **real-time event-driven architecture** where sensor data flows through MQTT and is simultaneously stored in InfluxDB for historical queries while being pushed to connected browsers via WebSockets.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           SMART HOTEL DASHBOARD                                 │
-│                         Django + Daphne (ASGI)                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                       │
-        ┌──────────────────────────────┼──────────────────────────────┐
-        ▼                              ▼                              ▼
-┌───────────────┐              ┌───────────────┐              ┌───────────────┐
-│    Views &    │              │   WebSocket   │              │   Background  │
-│   REST API    │              │   Consumers   │              │   Services    │
-│               │              │ (Channels)    │              │               │
-└───────────────┘              └───────────────┘              └───────────────┘
-        │                              │                              │
-        ▼                              ▼                              ▼
-┌───────────────┐              ┌───────────────┐              ┌───────────────┐
-│   Templates   │              │  Channel      │              │  MQTT Client  │
-│   (Jinja2)    │              │  Layers       │              │  (Paho)       │
-└───────────────┘              └───────────────┘              └───────────────┘
-                                       │                              │
-                                       │ WebSocket                    │ MQTT
-                                       ▼                              ▼
-                               ┌───────────────┐              ┌───────────────┐
-                               │   Browsers    │              │   Mosquitto   │
-                               │   (Staff UI)  │              │   Broker      │
-                               └───────────────┘              └───────────────┘
-                                                                      │
-                                                                      ▼
-                                                              ┌───────────────┐
-                                                              │  ESP32 IoT    │
-                                                              │  Devices      │
-                                                              └───────────────┘
+```mermaid
+flowchart TB
+    subgraph DASHBOARD["Smart Hotel Dashboard - Django + Daphne ASGI"]
+        subgraph HANDLERS["Request Handlers"]
+            VIEWS["Views &<br/>REST API"]
+            CONSUMERS["WebSocket<br/>Consumers"]
+            SERVICES["Background<br/>Services"]
+        end
+        
+        subgraph COMPONENTS["Components"]
+            TEMPLATES["Templates<br/>(Jinja2)"]
+            CHANNELS["Channel<br/>Layers"]
+            MQTT_CLIENT["MQTT Client<br/>(Paho)"]
+        end
+    end
+    
+    subgraph DATA_STORES["Data Stores"]
+        POSTGRES["PostgreSQL<br/>Users/Rooms"]
+        INFLUXDB["InfluxDB<br/>Sensor History"]
+        TELEGRAM["Telegram<br/>Bot API"]
+    end
+    
+    subgraph EXTERNAL["External"]
+        BROWSERS["Browsers<br/>Staff UI"]
+        MOSQUITTO["Mosquitto<br/>Broker"]
+        ESP32["ESP32<br/>Devices"]
+    end
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              DATA STORES                                        │
-│                                                                                 │
-│  ┌───────────────┐              ┌───────────────┐              ┌─────────────┐ │
-│  │  PostgreSQL   │              │   InfluxDB    │              │  Telegram   │ │
-│  │  (Users,      │              │  (Sensor      │              │  Bot API    │ │
-│  │   Rooms,      │              │   History)    │              │  (Notify)   │ │
-│  │   History)    │              │               │              │             │ │
-│  └───────────────┘              └───────────────┘              └─────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────────┘
+    VIEWS --> TEMPLATES
+    CONSUMERS --> CHANNELS
+    SERVICES --> MQTT_CLIENT
+    
+    CHANNELS <-->|WebSocket| BROWSERS
+    MQTT_CLIENT <-->|MQTT| MOSQUITTO
+    MOSQUITTO <-->|MQTT| ESP32
+    
+    VIEWS --> POSTGRES
+    VIEWS --> INFLUXDB
+    SERVICES --> TELEGRAM
 ```
 
 ### Component Responsibilities
@@ -114,51 +110,30 @@ The dashboard follows a **real-time event-driven architecture** where sensor dat
 
 ### Request Flow
 
+#### Sensor Data Flow
+
+```mermaid
+flowchart LR
+    A["ESP32<br/>Device"] -->|MQTT Publish| B["Mosquitto<br/>Broker"]
+    B --> C["Dashboard<br/>MQTT Client"]
+    C --> D["Update<br/>Room Model"]
+    C --> E["Broadcast<br/>WebSocket"]
+    D --> F["PostgreSQL<br/>Save"]
+    E --> G["Browser<br/>Consumers"]
+    G --> H["JavaScript<br/>Handler"]
+    H --> I["DOM Update<br/>Real-time"]
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    SENSOR DATA FLOW                             │
-└─────────────────────────────────────────────────────────────────┘
 
-ESP32 Device → [MQTT Publish] → Mosquitto Broker
-                                      │
-                                      ▼
-                              Dashboard MQTT Client
-                                      │
-                    ┌─────────────────┴─────────────────┐
-                    ▼                                   ▼
-            Update Room Model               Broadcast via WebSocket
-                    │                                   │
-                    ▼                                   ▼
-            PostgreSQL Save               Connected Browser Consumers
-                                                       │
-                                                       ▼
-                                               JavaScript Handler
-                                                       │
-                                                       ▼
-                                                DOM Update (Real-time)
+#### Control Command Flow
 
-┌─────────────────────────────────────────────────────────────────┐
-│                    CONTROL COMMAND FLOW                         │
-└─────────────────────────────────────────────────────────────────┘
-
-Browser UI → [HTTP POST] → Django View (SetTargetView)
-                                │
-                         [Validate & Save]
-                                │
-                                ▼
-                        Room Model Update
-                                │
-                                ▼
-                    MQTT Client Publish
-                                │
-                                ▼
-                        Mosquitto Broker
-                                │
-                                ▼
-                        ESP32 Device
-                                │
-                                ▼
-                    Hardware Action (Heater ON/OFF)
+```mermaid
+flowchart LR
+    A["Browser UI"] -->|HTTP POST| B["Django View<br/>SetTargetView"]
+    B -->|Validate & Save| C["Room Model<br/>Update"]
+    C --> D["MQTT Client<br/>Publish"]
+    D --> E["Mosquitto<br/>Broker"]
+    E --> F["ESP32<br/>Device"]
+    F --> G["Hardware<br/>Action"]
 ```
 
 ## Quick Start

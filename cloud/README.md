@@ -35,99 +35,73 @@ The Smart Hotel cloud infrastructure provides all backend services required to r
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              SMART HOTEL CLOUD                                  │
-│                         Docker Compose Orchestration                            │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                       │
-    ┌──────────────────────────────────┼──────────────────────────────────┐
-    │                                  │                                   │
-    ▼                                  ▼                                   ▼
-┌────────────┐                  ┌────────────┐                     ┌────────────┐
-│   ESP32    │                  │   STAFF    │                     │   GUESTS   │
-│  Devices   │                  │   BROWSER  │                     │   KIOSK    │
-└────────────┘                  └────────────┘                     └────────────┘
-    │ MQTT                           │ HTTP                              │ HTTP
-    │ :1883                          │ :8001                             │ :8002
-    ▼                                ▼                                   ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              DOCKER NETWORK                                     │
-│                                                                                 │
-│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌────────────┐ │
-│  │  Mosquitto  │◀────▶│   Telegraf  │─────▶│  InfluxDB   │◀────▶│  Grafana   │ │
-│  │  (MQTT)     │      │  (Bridge)   │      │ (Time-Series│      │ (Visualize)│ │
-│  │  :1883      │      │             │      │  Database)  │      │  :3000     │ │
-│  │  :9001 WS   │      │             │      │  :8086      │      │            │ │
-│  └─────────────┘      └─────────────┘      └─────────────┘      └────────────┘ │
-│        │                                          ▲                            │
-│        │ MQTT                                     │ Query                      │
-│        ▼                                          │                            │
-│  ┌─────────────┐                           ┌──────┴──────┐                     │
-│  │  Dashboard  │◀─────────────────────────▶│  PostgreSQL │                     │
-│  │  (Django)   │                           │  (Users/    │                     │
-│  │  :8001      │                           │   Rooms)    │                     │
-│  └─────────────┘                           └─────────────┘                     │
-│        │                                                                        │
-│        │ Telegram                                                              │
-│        ▼                                                                       │
-│  ┌─────────────┐                                                               │
-│  │  Telegram   │                                                               │
-│  │  Bot API    │                                                               │
-│  └─────────────┘                                                               │
-│                                                                                 │
-│  ┌─────────────────────────────────────────┐                                   │
-│  │           KIOSK NETWORK                 │                                   │
-│  │  ┌─────────────┐      ┌─────────────┐   │                                   │
-│  │  │   Kiosk     │─────▶│ MRZ Backend │   │                                   │
-│  │  │  (Django)   │      │   (Flask)   │   │                                   │
-│  │  │  :8002      │      │  :5000 int  │   │                                   │
-│  │  └─────────────┘      └─────────────┘   │                                   │
-│  └─────────────────────────────────────────┘                                   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph EXTERNAL["External Connections"]
+        ESP32["ESP32 Devices<br/>MQTT :1883"]
+        STAFF["Staff Browser<br/>HTTP :8001"]
+        GUESTS["Guest Kiosk<br/>HTTP :8002"]
+    end
+
+    subgraph DOCKER["Docker Network"]
+        subgraph DATA_LAYER["Data Layer"]
+            MOSQUITTO["Mosquitto<br/>MQTT Broker<br/>:1883 / :9001 WS"]
+            TELEGRAF["Telegraf<br/>Data Bridge"]
+            INFLUXDB["InfluxDB<br/>Time-Series DB<br/>:8086"]
+            GRAFANA["Grafana<br/>Visualization<br/>:3000"]
+            POSTGRES["PostgreSQL<br/>Users/Rooms"]
+        end
+        
+        subgraph APP_LAYER["Application Layer"]
+            DASHBOARD["Dashboard<br/>Django/ASGI<br/>:8001"]
+            TELEGRAM["Telegram<br/>Bot API"]
+        end
+        
+        subgraph KIOSK_NET["Kiosk Network (Isolated)"]
+            KIOSK["Kiosk App<br/>Django<br/>:8002"]
+            MRZ["MRZ Backend<br/>Flask<br/>:5000 internal"]
+        end
+    end
+
+    ESP32 <-->|MQTT| MOSQUITTO
+    STAFF -->|HTTP| DASHBOARD
+    GUESTS -->|HTTP| KIOSK
+    
+    MOSQUITTO --> TELEGRAF
+    TELEGRAF --> INFLUXDB
+    INFLUXDB --> GRAFANA
+    
+    DASHBOARD <--> POSTGRES
+    DASHBOARD <--> MOSQUITTO
+    DASHBOARD --> TELEGRAM
+    DASHBOARD --> INFLUXDB
+    
+    KIOSK --> MRZ
 ```
 
-### Data Flow Diagram
+### Data Flow Diagrams
 
+#### Sensor Data Flow
+
+```mermaid
+flowchart LR
+    A["ESP32<br/>Sensor"] -->|MQTT Publish| B["Mosquitto<br/>Broker"]
+    B --> C["Telegraf<br/>Agent"]
+    C -->|Write| D["InfluxDB<br/>Bucket"]
+    D --> E["Grafana<br/>Panel"]
+    D --> F["Dashboard<br/>Django"]
+    E --> G["Staff View"]
+    F --> H["Real-time UI"]
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        SENSOR DATA FLOW                         │
-└─────────────────────────────────────────────────────────────────┘
 
-ESP32 Sensor → [MQTT Publish] → Mosquitto Broker
-                                      │
-                                      ▼
-                               Telegraf Agent
-                                      │
-                              [InfluxDB Write]
-                                      ▼
-                               InfluxDB Bucket
-                                      │
-                    ┌─────────────────┴─────────────────┐
-                    ▼                                   ▼
-              Grafana Query                      Dashboard Query
-                    │                                   │
-                    ▼                                   ▼
-              Grafana Panel                      Django Template
-              (Staff View)                       (Real-time UI)
+#### Control Command Flow
 
-┌─────────────────────────────────────────────────────────────────┐
-│                       CONTROL FLOW                              │
-└─────────────────────────────────────────────────────────────────┘
-
-Staff Dashboard → [HTTP POST] → Django View
-                                     │
-                               [MQTT Publish]
-                                     ▼
-                              Mosquitto Broker
-                                     │
-                              [MQTT Subscribe]
-                                     ▼
-                               ESP32 Device
-                                     │
-                               [Execute Command]
-                                     ▼
-                              (Heater ON/OFF, etc.)
+```mermaid
+flowchart LR
+    A["Staff<br/>Dashboard"] -->|HTTP POST| B["Django<br/>View"]
+    B -->|MQTT Publish| C["Mosquitto<br/>Broker"]
+    C -->|Subscribe| D["ESP32<br/>Device"]
+    D -->|Execute| E["Heater<br/>ON/OFF"]
 ```
 
 ## Services
