@@ -22,8 +22,8 @@
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
-// Board configuration (camera pins)
-#include "board_config.h"
+// Camera configuration (sensor selection + initialization)
+#include "cam_config.h"
 
 // Model data (stored in PROGMEM)
 #include "model_data.h"
@@ -37,7 +37,7 @@
 #define NUM_CLASSES         4
 
 // Confidence threshold for recognition
-#define CONFIDENCE_THRESHOLD 0.6f
+#define CONFIDENCE_THRESHOLD 0.9f
 
 // ==================== CLASS LABELS ====================
 
@@ -56,12 +56,13 @@ TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
 
 uint8_t* tensor_arena = nullptr;
-constexpr int kTensorArenaSize = 512 * 1024;  // 512 KB
-
+// constexpr int kTensorArenaSize = 512 * 1024;  // 512 KB
+constexpr int kTensorArenaSize = 1 * 1024 * 1024;  // 1 MB
 // ==================== STATE ====================
 
 String current_prediction = "Waiting...";
 float current_confidence = 0.0;
+bool model_ready = false;  // Track if model initialized successfully
 
 // ==================== HELPER: DRAW BOX ON FRAME ====================
 
@@ -103,10 +104,10 @@ void process_image(camera_fb_t* fb) {
     if (!fb || !input) return;
 
     // Smart Crop Logic:
-    // Camera is QVGA (320x240). We crop a centered square and resize to 96x96.
-    int min_side = (fb->width < fb->height) ? fb->width : fb->height;
-    int crop_x_start = (fb->width - min_side) / 2;
-    int crop_y_start = (fb->height - min_side) / 2;
+    // Use sensor-specific crop settings from cam_config.h
+    int min_side = CROP_SIZE;
+    int crop_x_start = CROP_X_OFFSET;
+    int crop_y_start = CROP_Y_OFFSET;
 
     uint16_t* rgb565 = (uint16_t*)fb->buf;
 
@@ -175,55 +176,29 @@ void setup() {
     Serial.begin(115200);
     Serial.setDebugOutput(true);
     Serial.println("\n--- ESP32-CAM Face Recognition ---");
+    Serial.printf("Sensor: %s\n", SENSOR_NAME);
 
-    // 1. Camera Init
-    camera_config_t config;
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer = LEDC_TIMER_0;
-    config.pin_d0 = Y2_GPIO_NUM;
-    config.pin_d1 = Y3_GPIO_NUM;
-    config.pin_d2 = Y4_GPIO_NUM;
-    config.pin_d3 = Y5_GPIO_NUM;
-    config.pin_d4 = Y6_GPIO_NUM;
-    config.pin_d5 = Y7_GPIO_NUM;
-    config.pin_d6 = Y8_GPIO_NUM;
-    config.pin_d7 = Y9_GPIO_NUM;
-    config.pin_xclk = XCLK_GPIO_NUM;
-    config.pin_pclk = PCLK_GPIO_NUM;
-    config.pin_vsync = VSYNC_GPIO_NUM;
-    config.pin_href = HREF_GPIO_NUM;
-    config.pin_sccb_sda = SIOD_GPIO_NUM;
-    config.pin_sccb_scl = SIOC_GPIO_NUM;
-    config.pin_pwdn = PWDN_GPIO_NUM;
-    config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
-
-    // QVGA (320x240) + RGB565 for processing
-    config.pixel_format = PIXFORMAT_RGB565;
-    config.frame_size = FRAMESIZE_QVGA;
-    config.fb_count = 2;
-    config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.grab_mode = CAMERA_GRAB_LATEST;
-
-    if (esp_camera_init(&config) != ESP_OK) {
+    // 1. Camera Init (using cam_config.h)
+    esp_err_t cam_err = initCamera();
+    if (cam_err != ESP_OK) {
         Serial.println("Camera init failed!");
         return;
     }
     Serial.println("Camera initialized");
 
-    // Camera tuning for indoor/face recognition
-    sensor_t* s = esp_camera_sensor_get();
-    s->set_brightness(s, 1);
-    s->set_contrast(s, 1);
-    s->set_saturation(s, 1);
-    s->set_whitebal(s, 1);
-    s->set_awb_gain(s, 1);
-    s->set_wb_mode(s, 0);
-    s->set_exposure_ctrl(s, 1);
-    s->set_aec2(s, 1);
-    s->set_gain_ctrl(s, 1);
-    s->set_vflip(s, 0);
-    s->set_hmirror(s, 0);
+    // 1b. Camera Test - verify we can capture frames
+    Serial.println("Testing camera capture...");
+    camera_fb_t* test_fb = esp_camera_fb_get();
+    if (!test_fb) {
+        Serial.println("✗ Camera test FAILED - cannot capture frames!");
+        return;
+    }
+    Serial.printf("✓ Camera test OK - captured %dx%d frame (%d bytes)\n", 
+                  test_fb->width, test_fb->height, test_fb->len);
+    if (test_fb->format != PIXFORMAT_RGB565) {
+        Serial.println("✗ WARNING: Expected RGB565 format for inference!");
+    }
+    esp_camera_fb_return(test_fb);
 
     // 2. LED Setup
 #if defined(LED_GPIO_NUM)
@@ -289,12 +264,20 @@ void setup() {
     Serial.printf("Output classes: %d\n", output->dims->data[1]);
     Serial.printf("Arena used: %d bytes\n", interpreter->arena_used_bytes());
 
+    model_ready = true;  // Mark initialization as successful
     Serial.println("\n--- Ready for face recognition ---\n");
 }
 
 // ==================== MAIN LOOP ====================
 
 void loop() {
+    // Check if model initialized successfully
+    if (!model_ready) {
+        Serial.println("Model not ready - check initialization errors above");
+        delay(5000);  // Wait 5 seconds before next message
+        return;
+    }
+
     // 1. Grab frame
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
@@ -303,8 +286,8 @@ void loop() {
         return;
     }
 
-    // 2. Draw visual feedback box (centered 240x240 on 320x240)
-    draw_box(fb, 40, 0, 240, 240, 0x07E0);  // Green box
+    // 2. Draw visual feedback box (crop region from cam_config.h)
+    draw_box(fb, CROP_X_OFFSET, CROP_Y_OFFSET, CROP_SIZE, CROP_SIZE, 0x07E0);  // Green box
 
     // 3. Process image (crop and resize to 96x96)
     process_image(fb);
