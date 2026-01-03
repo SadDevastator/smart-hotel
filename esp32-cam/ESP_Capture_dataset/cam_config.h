@@ -9,8 +9,8 @@
 // ===========================
 // Uncomment ONLY ONE sensor type:
 
-// #define SENSOR_OV2640        // OV2640 - Has hardware JPEG encoder
-#define SENSOR_RHYX_M21_45   // RHYX M21-45 (GC2415) - NO hardware JPEG, limited resolution
+#define SENSOR_OV2640        // OV2640 - Has hardware JPEG encoder
+// #define SENSOR_RHYX_M21_45   // RHYX M21-45 (GC2415) - NO hardware JPEG, limited resolution
 
 // ===========================
 // Sensor Configuration Profiles

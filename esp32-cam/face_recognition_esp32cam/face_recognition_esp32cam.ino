@@ -37,12 +37,13 @@
 #define NUM_CLASSES         4
 
 // Confidence threshold for recognition
-#define CONFIDENCE_THRESHOLD 0.9f
+#define CONFIDENCE_THRESHOLD 0.4f
 
 // ==================== CLASS LABELS ====================
 
 static const char* kLabels[] = {
     "maha",
+    "mokhtar",
     "omar",
     "radwan",
     "tarek"

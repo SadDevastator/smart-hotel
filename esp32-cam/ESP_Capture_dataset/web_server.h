@@ -12,6 +12,8 @@ extern String currentPerson;
 extern int imageCounter;
 extern bool sdCardAvailable;
 extern bool useJPEG;
+extern bool continuousCapture;
+extern bool ledFlashEnabled;
 extern bool createPersonDirectory(String personName);
 extern int getImageCount(String personName);
 extern bool saveImage(camera_fb_t* fb, String personName, int imageNum);
@@ -291,7 +293,13 @@ String getIndexHTML() {
                 <option value="single">Single Shot</option>
                 <option value="burst">Burst (5 images)</option>
                 <option value="auto">Auto (1 per 2 seconds)</option>
+                <option value="stream">Continuous Stream</option>
             </select>
+        </div>
+
+        <div class="input-group" style="display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="ledFlash" onchange="toggleLED()" style="width: auto; cursor: pointer;">
+            <label for="ledFlash" style="margin: 0; cursor: pointer;">💡 LED Flash</label>
         </div>
 
         <div class="camera-container">
@@ -303,6 +311,7 @@ String getIndexHTML() {
             <button class="btn-primary" onclick="setPersonName()">Set Name</button>
             <button class="btn-success" onclick="captureImage()" id="captureBtn">Capture</button>
             <button class="btn-warning" onclick="toggleAuto()" id="autoBtn">Start Auto</button>
+            <button class="btn-warning" onclick="toggleStream()" id="streamBtn" style="display:none;">Start Stream</button>
             <button class="btn-info" onclick="resetCounter()">Reset Count</button>
         </div>
 
@@ -322,6 +331,7 @@ String getIndexHTML() {
                 <li>Vary head angles and expressions</li>
                 <li>Different lighting conditions</li>
                 <li>Include glasses/hats if normally worn</li>
+                <li><strong>Use Continuous Stream</strong> mode to rapidly capture hundreds of images</li>
             </ul>
         </div>
     </div>
@@ -329,6 +339,8 @@ String getIndexHTML() {
     <script>
         let autoCapture = false;
         let autoInterval = null;
+        let streamCapture = false;
+        let streamInterval = null;
         let streamUrl = window.location.protocol + '//' + window.location.hostname + ':81/stream';
 
         function debug(msg, type = 'info') {
@@ -342,6 +354,31 @@ String getIndexHTML() {
                 log.removeChild(log.lastChild);
             }
             console.log('[DEBUG ' + type + ']', msg);
+        }
+
+        function updateOverlay(text) {
+            document.getElementById('overlay').textContent = text;
+        }
+
+        function flash() {
+            const indicator = document.getElementById('flashIndicator');
+            indicator.classList.add('active');
+            setTimeout(() => indicator.classList.remove('active'), 100);
+        }
+
+        function toggleLED() {
+            const enabled = document.getElementById('ledFlash').checked;
+            debug('LED flash: ' + (enabled ? 'enabled' : 'disabled'), 'info');
+            fetch('/toggle-led?enabled=' + (enabled ? '1' : '0'))
+                .then(r => r.json())
+                .then(data => {
+                    debug('LED toggle response: ' + JSON.stringify(data), 'success');
+                    updateOverlay(enabled ? '💡 Flash enabled' : '🌑 Flash disabled');
+                    setTimeout(() => updateOverlay('Ready'), 1500);
+                })
+                .catch(err => {
+                    debug('LED toggle error: ' + err, 'error');
+                });
         }
 
         document.getElementById('stream').src = streamUrl;
@@ -364,6 +401,10 @@ String getIndexHTML() {
                 if(data.currentPerson && data.currentPerson !== '') {
                     document.getElementById('currentPerson').textContent = data.currentPerson;
                     debug('Person already set: ' + data.currentPerson, 'success');
+                }
+                if(data.ledFlash !== undefined) {
+                    document.getElementById('ledFlash').checked = data.ledFlash;
+                    debug('LED flash state: ' + (data.ledFlash ? 'enabled' : 'disabled'), 'info');
                 }
             })
             .catch(err => {
@@ -404,6 +445,28 @@ String getIndexHTML() {
                     debug('set-person error: ' + err, 'error');
                 });
         }
+
+        // Show/hide controls based on capture mode
+        document.getElementById('captureMode').addEventListener('change', function() {
+            const mode = this.value;
+            const captureBtn = document.getElementById('captureBtn');
+            const autoBtn = document.getElementById('autoBtn');
+            const streamBtn = document.getElementById('streamBtn');
+            
+            if(mode === 'stream') {
+                captureBtn.style.display = 'none';
+                autoBtn.style.display = 'none';
+                streamBtn.style.display = 'block';
+            } else if(mode === 'auto') {
+                captureBtn.style.display = 'none';
+                autoBtn.style.display = 'block';
+                streamBtn.style.display = 'none';
+            } else {
+                captureBtn.style.display = 'block';
+                autoBtn.style.display = 'none';
+                streamBtn.style.display = 'none';
+            }
+        });
 
         function captureImage() {
             const mode = document.getElementById('captureMode').value;
@@ -489,6 +552,65 @@ String getIndexHTML() {
             }
         }
 
+        function toggleStream() {
+            const btn = document.getElementById('streamBtn');
+            const mode = document.getElementById('captureMode');
+            const person = document.getElementById('currentPerson').textContent;
+            
+            if(streamCapture) {
+                debug('Stopping continuous stream...', 'info');
+                fetch('/stop-stream')
+                    .then(r => r.json())
+                    .then(data => {
+                        debug('Stream stopped: ' + JSON.stringify(data), 'success');
+                        streamCapture = false;
+                        btn.textContent = 'Start Stream';
+                        btn.className = 'btn-warning';
+                        mode.disabled = false;
+                        clearInterval(streamInterval);
+                        updateOverlay('Stream capture stopped - ' + data.totalCaptured + ' images');
+                        document.getElementById('imageCount').textContent = data.imageCount;
+                    })
+                    .catch(err => {
+                        debug('Stop stream error: ' + err, 'error');
+                    });
+            } else {
+                if(person === 'Not set') {
+                    debug('No person set! Please set a name first.', 'error');
+                    alert('Please set a person name first!');
+                    return;
+                }
+                debug('Starting continuous stream...', 'info');
+                fetch('/start-stream')
+                    .then(r => r.json())
+                    .then(data => {
+                        if(data.success) {
+                            debug('Stream started successfully', 'success');
+                            streamCapture = true;
+                            btn.textContent = 'Stop Stream';
+                            btn.className = 'btn-warning';
+                            mode.disabled = true;
+                            updateOverlay('Streaming... capturing images continuously');
+                            // Poll for image count updates
+                            streamInterval = setInterval(() => {
+                                fetch('/status')
+                                    .then(r => r.json())
+                                    .then(data => {
+                                        document.getElementById('imageCount').textContent = data.imageCount;
+                                        updateOverlay('Streaming... ' + data.imageCount + ' images captured');
+                                    });
+                            }, 500);
+                        } else {
+                            debug('Failed to start stream: ' + data.message, 'error');
+                            alert('Error: ' + data.message);
+                        }
+                    })
+                    .catch(err => {
+                        debug('Start stream error: ' + err, 'error');
+                    });
+            }
+        }
+
         function resetCounter() {
             if(confirm('Reset image counter? (Images will NOT be deleted)')) {
                 fetch('/reset')
@@ -498,16 +620,6 @@ String getIndexHTML() {
                         updateOverlay('Counter reset');
                     });
             }
-        }
-
-        function updateOverlay(text) {
-            document.getElementById('overlay').textContent = text;
-        }
-
-        function flash() {
-            const indicator = document.getElementById('flashIndicator');
-            indicator.classList.add('active');
-            setTimeout(() => indicator.classList.remove('active'), 100);
         }
 
         function changeResolution() {
@@ -628,9 +740,11 @@ static esp_err_t capture_handler(httpd_req_t *req) {
     }
     
 #if defined(LED_GPIO_NUM)
-    digitalWrite(LED_GPIO_NUM, HIGH);
-    delay(100);
-    digitalWrite(LED_GPIO_NUM, LOW);
+    if(ledFlashEnabled) {
+        digitalWrite(LED_GPIO_NUM, HIGH);
+        delay(100);
+        digitalWrite(LED_GPIO_NUM, LOW);
+    }
 #endif
     
     camera_fb_t* fb = esp_camera_fb_get();
@@ -703,7 +817,8 @@ static esp_err_t status_handler(httpd_req_t *req) {
     dbg("[HTTP] /status");
     String json = "{\"sdCard\":" + String(sdCardAvailable ? "true" : "false") +
                  ",\"imageCount\":" + String(imageCounter) +
-                 ",\"currentPerson\":\"" + currentPerson + "\"}";
+                 ",\"currentPerson\":\"" + currentPerson + "\"" +
+                 ",\"ledFlash\":" + String(ledFlashEnabled ? "true" : "false") + "}";
     
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json.c_str(), json.length());
@@ -715,6 +830,64 @@ static esp_err_t reset_handler(httpd_req_t *req) {
     imageCounter = 0;
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, "{\"success\":true}", -1);
+    return ESP_OK;
+}
+
+static esp_err_t start_stream_handler(httpd_req_t *req) {
+    dbg("[HTTP] /start-stream");
+    String response;
+    
+    if(currentPerson == "") {
+        response = "{\"success\":false,\"message\":\"No person set\"}";
+    } else if(!sdCardAvailable) {
+        response = "{\"success\":false,\"message\":\"SD card not available\"}";
+    } else {
+        continuousCapture = true;
+        response = "{\"success\":true}";
+        dbg("[STREAM] Continuous capture started");
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response.c_str(), response.length());
+    return ESP_OK;
+}
+
+static esp_err_t stop_stream_handler(httpd_req_t *req) {
+    dbg("[HTTP] /stop-stream");
+    continuousCapture = false;
+    
+    String response = "{\"success\":true,\"imageCount\":" + String(imageCounter) + 
+                     ",\"totalCaptured\":" + String(imageCounter) + "}";
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response.c_str(), response.length());
+    dbg("[STREAM] Continuous capture stopped");
+    return ESP_OK;
+}
+
+static esp_err_t toggle_led_handler(httpd_req_t *req) {
+    dbg("[HTTP] /toggle-led");
+    char buf[50];
+    String response;
+    
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len > 1) {
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            char param[10];
+            if (httpd_query_key_value(buf, "enabled", param, sizeof(param)) == ESP_OK) {
+                ledFlashEnabled = (String(param) == "1");
+                response = "{\"success\":true,\"ledFlash\":" + String(ledFlashEnabled ? "true" : "false") + "}";
+                dbg(ledFlashEnabled ? "[LED] Flash enabled" : "[LED] Flash disabled");
+            } else {
+                response = "{\"success\":false,\"message\":\"No enabled parameter\"}";
+            }
+        }
+    } else {
+        response = "{\"success\":false,\"message\":\"No parameters\"}";
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response.c_str(), response.length());
     return ESP_OK;
 }
 
@@ -807,6 +980,27 @@ void startCameraServer() {
         .user_ctx  = NULL
     };
 
+    httpd_uri_t start_stream_uri = {
+        .uri       = "/start-stream",
+        .method    = HTTP_GET,
+        .handler   = start_stream_handler,
+        .user_ctx  = NULL
+    };
+
+    httpd_uri_t stop_stream_uri = {
+        .uri       = "/stop-stream",
+        .method    = HTTP_GET,
+        .handler   = stop_stream_handler,
+        .user_ctx  = NULL
+    };
+
+    httpd_uri_t toggle_led_uri = {
+        .uri       = "/toggle-led",
+        .method    = HTTP_GET,
+        .handler   = toggle_led_handler,
+        .user_ctx  = NULL
+    };
+
     // Start main server on port 80
     dbg("[HTTP] Starting server on port 80...");
     if (httpd_start(&camera_httpd, &config) == ESP_OK) {
@@ -816,6 +1010,9 @@ void startCameraServer() {
         httpd_register_uri_handler(camera_httpd, &status_uri);
         httpd_register_uri_handler(camera_httpd, &reset_uri);
         httpd_register_uri_handler(camera_httpd, &control_uri);
+        httpd_register_uri_handler(camera_httpd, &start_stream_uri);
+        httpd_register_uri_handler(camera_httpd, &stop_stream_uri);
+        httpd_register_uri_handler(camera_httpd, &toggle_led_uri);
         dbg("[HTTP] ✓ Server started on port 80");
     } else {
         dbg("[HTTP] ✗ Failed to start server on port 80");
