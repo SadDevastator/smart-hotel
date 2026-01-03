@@ -11,6 +11,7 @@ from rooms.models import Room, SensorHistory
 from accounts.models import User
 from .telegram import send_telegram_message
 from .influx_client import write_setpoint, is_connected as influx_connected
+from .mqtt_client import publish_target_temperature, publish_climate_mode, publish_fan_speed, publish_luminosity, publish_light_mode
 
 
 class RoleRequiredMixin(UserPassesTestMixin):
@@ -142,10 +143,122 @@ class SetTargetTemperatureView(LoginRequiredMixin, CanControlMixin, View):
             room.target_temperature = target
             room.save()
             
+            # Publish to MQTT
+            publish_target_temperature(room, target)
+            
             # Write setpoint to InfluxDB
             write_setpoint(room.room_number, target)
             
             return JsonResponse({'status': 'success', 'target': target})
+        except (ValueError, json.JSONDecodeError) as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+class SetClimateModeView(LoginRequiredMixin, CanControlMixin, View):
+    """Set climate control mode (auto/manual/off)"""
+    def post(self, request, room_id):
+        user = request.user
+        room = get_object_or_404(Room, pk=room_id)
+        
+        if user.is_guest and (not user.assigned_room or user.assigned_room.id != room.id):
+            return JsonResponse({'error': 'Access denied'}, status=403)
+        
+        try:
+            data = json.loads(request.body)
+            mode = data.get('mode', '').lower()
+            
+            if mode not in [Room.CLIMATE_AUTO, Room.CLIMATE_MANUAL, Room.CLIMATE_OFF]:
+                return JsonResponse({'error': 'Invalid climate mode'}, status=400)
+            
+            room.climate_mode = mode
+            room.save()
+            
+            # Publish to MQTT
+            publish_climate_mode(room, mode)
+            
+            return JsonResponse({'status': 'success', 'mode': mode})
+        except (ValueError, json.JSONDecodeError) as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+class SetFanSpeedView(LoginRequiredMixin, CanControlMixin, View):
+    """Set fan speed for manual climate mode"""
+    def post(self, request, room_id):
+        user = request.user
+        room = get_object_or_404(Room, pk=room_id)
+        
+        if user.is_guest and (not user.assigned_room or user.assigned_room.id != room.id):
+            return JsonResponse({'error': 'Access denied'}, status=403)
+        
+        try:
+            data = json.loads(request.body)
+            speed = data.get('speed', '').lower()
+            
+            if speed not in [Room.FAN_LOW, Room.FAN_MEDIUM, Room.FAN_HIGH]:
+                return JsonResponse({'error': 'Invalid fan speed'}, status=400)
+            
+            room.fan_speed = speed
+            room.save()
+            
+            # Publish to MQTT
+            publish_fan_speed(room, speed)
+            
+            return JsonResponse({'status': 'success', 'speed': speed})
+        except (ValueError, json.JSONDecodeError) as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+class SetLuminosityView(LoginRequiredMixin, CanControlMixin, View):
+    """Set luminosity level (0=off, 1=one light, 2=two lights)"""
+    def post(self, request, room_id):
+        user = request.user
+        room = get_object_or_404(Room, pk=room_id)
+        
+        if user.is_guest and (not user.assigned_room or user.assigned_room.id != room.id):
+            return JsonResponse({'error': 'Access denied'}, status=403)
+        
+        try:
+            data = json.loads(request.body)
+            # Accept both 'level' and 'luminosity' for backwards compatibility
+            level = int(data.get('luminosity', data.get('level', 0)))
+            
+            if level not in [0, 1, 2]:
+                return JsonResponse({'error': 'Invalid luminosity level (must be 0, 1, or 2)'}, status=400)
+            
+            room.luminosity = level
+            room.save()
+            
+            # Publish to MQTT
+            publish_luminosity(room, level)
+            
+            return JsonResponse({'status': 'success', 'level': level})
+        except (ValueError, json.JSONDecodeError) as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+class SetLightModeView(LoginRequiredMixin, CanControlMixin, View):
+    """Set light mode (auto/manual)"""
+    def post(self, request, room_id):
+        user = request.user
+        room = get_object_or_404(Room, pk=room_id)
+        
+        if user.is_guest and (not user.assigned_room or user.assigned_room.id != room.id):
+            return JsonResponse({'error': 'Access denied'}, status=403)
+        
+        try:
+            data = json.loads(request.body)
+            mode = data.get('mode', 'auto')
+            
+            if mode not in ['auto', 'manual']:
+                return JsonResponse({'error': 'Invalid light mode (must be auto or manual)'}, status=400)
+            
+            room.light_mode = mode
+            room.save()
+            
+            # Publish to MQTT
+            publish_light_mode(room, mode)
+            
+            return JsonResponse({'status': 'success', 'mode': mode})
         except (ValueError, json.JSONDecodeError) as e:
             return JsonResponse({'error': str(e)}, status=400)
 

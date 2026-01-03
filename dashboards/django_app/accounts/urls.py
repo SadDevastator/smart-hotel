@@ -13,4 +13,10 @@ urlpatterns = [
     path('forgot-password/done/', views.ForgotPasswordDoneView.as_view(), name='forgot_password_done'),
     path('reset-password/<str:token>/', views.ResetPasswordView.as_view(), name='reset_password'),
     path('reset-password/done/', views.ResetPasswordDoneView.as_view(), name='reset_password_done'),
+    
+    # Staff management (admin only)
+    path('staff/', views.StaffManagementView.as_view(), name='staff_management'),
+    path('staff/create/', views.CreateStaffView.as_view(), name='create_staff'),
+    path('staff/<int:user_id>/reset-password/', views.AdminResetPasswordView.as_view(), name='admin_reset_password'),
+    path('staff/<int:user_id>/delete/', views.DeleteStaffView.as_view(), name='delete_staff'),
 ]
