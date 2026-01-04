@@ -14,6 +14,7 @@
 #define ROOM_LED2_PIN           26
 #define ROOM_BUTTON1_PIN        18
 #define ROOM_BUTTON2_PIN        19
+#define ACCESS_CONTROL          29
 
 // PWM Configuration
 #define ROOM_PWM_CHANNEL_LED1   0

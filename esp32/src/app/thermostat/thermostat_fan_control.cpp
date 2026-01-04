@@ -71,8 +71,6 @@ void Thermostat_SetMode(Thermostat_Mode_t mode)
 
     Serial.print("[DEBUG] Thermostat_SetMode() -> ");
     Serial.println(mode);
-
-    
 }
 
 Thermostat_Mode_t Thermostat_GetMode(void)

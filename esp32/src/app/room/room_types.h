@@ -55,4 +55,17 @@ typedef struct {
     uint16_t length;
 } Room_MQTTMessage_t;
 
+
+typedef enum {
+    RFID_EVENT_CARD_DETECTED,
+    RFID_EVENT_AUTH_GRANTED,
+    RFID_EVENT_AUTH_DENIED
+} Room_RFID_EventType_t;
+
+typedef struct {
+    Room_RFID_EventType_t type;
+    char uid[32];
+} Room_RFID_Event_t;
+
+
 #endif // ROOM_TYPES_H
