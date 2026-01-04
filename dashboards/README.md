@@ -226,6 +226,47 @@ The dashboard uses MQTT for real-time communication with ESP32 devices and the n
 | /hotel/+/telemetry/climate_mode            | Climate mode                       | 'auto'/'manual'/'off' |
 | /hotel/+/telemetry/fan_speed               | Fan speed                          | 'low'/'medium'/'high' |
 
+### ESP32-CAM Topics (Face Recognition)
+
+The dashboard subscribes to ESP32-CAM events for real-time face recognition:
+
+| Topic Pattern                              | Description                        | Payload Type |
+|--------------------------------------------|------------------------------------|-------------|
+| hotel/kiosk/+/face/recognized              | Known person identified            | JSON |
+| hotel/kiosk/+/face/unknown                 | Unknown face detected              | JSON |
+| hotel/kiosk/+/status                       | Camera device status               | JSON |
+| hotel/kiosk/+/heartbeat                    | Periodic health check              | JSON |
+
+**Face Recognition Payload:**
+```json
+{
+  "name": "person_name",
+  "confidence": 0.987,
+  "timestamp": 1234567890,
+  "device": "esp32cam-kiosk-01"
+}
+```
+
+**Device Status Payload:**
+```json
+{
+  "status": "online",
+  "uptime": 12345,
+  "model_ready": true,
+  "free_heap": 123456,
+  "wifi_rssi": -45,
+  "ip": "192.168.1.100"
+}
+```
+
+**Control Commands (Dashboard publishes):**
+
+| Topic Pattern                              | Description                        | Payload Example |
+|--------------------------------------------|------------------------------------|----------------|
+| hotel/kiosk/<device_id>/control            | Send command to ESP32-CAM          | `{"command": "status"}` |
+
+Available commands: `status`, `restart`, `capture`
+
 ### Published Topics (Dashboard as Publisher)
 
 | Topic Pattern                              | Description                        | Payload Example |

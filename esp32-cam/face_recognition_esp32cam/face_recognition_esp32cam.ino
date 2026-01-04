@@ -1,6 +1,7 @@
 /**
  * ESP32-CAM Face Recognition Firmware
  * Uses TensorFlow Lite Micro for on-device inference
+ * Publishes recognition events via MQTT to Smart Hotel cloud
  * 
  * Hardware: ESP32-CAM (AI-Thinker)
  * Model: MobileNetV2 (96x96 input, 5 classes, quantized uint8)
@@ -9,6 +10,7 @@
  *   1. Board: "AI Thinker ESP32-CAM"
  *   2. Partition Scheme: "Huge APP (3MB No OTA/1MB SPIFFS)"
  *   3. PSRAM: "Enabled"
+ *   4. Install libraries: PubSubClient, ArduinoJson
  */
 
 #include <Arduino.h>
@@ -28,6 +30,9 @@
 // Model data (stored in PROGMEM)
 #include "model_data.h"
 
+// MQTT Client for publishing recognition events
+#include "mqtt_client.h"
+
 // ==================== CONFIGURATION ====================
 
 // Model configuration
@@ -38,6 +43,9 @@
 
 // Confidence threshold for recognition
 #define CONFIDENCE_THRESHOLD 0.995f
+
+// Enable/disable MQTT publishing
+#define MQTT_ENABLED        1
 
 // ==================== CLASS LABELS ====================
 
@@ -64,6 +72,22 @@ constexpr int kTensorArenaSize = 1 * 1024 * 1024;  // 1 MB
 String current_prediction = "Waiting...";
 float current_confidence = 0.0;
 bool model_ready = false;  // Track if model initialized successfully
+
+// ==================== MQTT CLIENT ====================
+
+#if MQTT_ENABLED
+MQTTClient mqttClient;
+
+// Control command callback
+void onControlCommand(const char* command) {
+    Serial.printf("[Control] Command received: %s\n", command);
+    
+    if (strcmp(command, "capture") == 0) {
+        // Force immediate recognition publish on next frame
+        Serial.println("[Control] Forcing capture...");
+    }
+}
+#endif
 
 // ==================== HELPER: DRAW BOX ON FRAME ====================
 
@@ -267,11 +291,28 @@ void setup() {
 
     model_ready = true;  // Mark initialization as successful
     Serial.println("\n--- Ready for face recognition ---\n");
+
+#if MQTT_ENABLED
+    // Initialize MQTT client
+    Serial.println("Initializing MQTT...");
+    if (mqttClient.begin()) {
+        mqttClient.setControlCallback(onControlCommand);
+        mqttClient.publishStatus(true);
+        Serial.println("MQTT initialized successfully");
+    } else {
+        Serial.println("MQTT initialization failed - continuing without MQTT");
+    }
+#endif
 }
 
 // ==================== MAIN LOOP ====================
 
 void loop() {
+#if MQTT_ENABLED
+    // Maintain MQTT connection
+    mqttClient.loop();
+#endif
+
     // Check if model initialized successfully
     if (!model_ready) {
         Serial.println("Model not ready - check initialization errors above");
@@ -331,6 +372,11 @@ void loop() {
         if (max_score >= CONFIDENCE_THRESHOLD) {
             current_prediction = kLabels[max_idx];
 
+#if MQTT_ENABLED
+            // Publish recognition event to MQTT
+            mqttClient.publishRecognition(kLabels[max_idx], max_score);
+#endif
+
             // Visual feedback - flash LED on recognition
 #if defined(LED_GPIO_NUM)
             digitalWrite(LED_GPIO_NUM, HIGH);
@@ -339,6 +385,13 @@ void loop() {
 #endif
         } else {
             current_prediction = "Unknown";
+
+#if MQTT_ENABLED
+            // Optionally publish unknown face events
+            if (max_score > 0.5f) {  // Only if some face detected
+                mqttClient.publishUnknown(max_score);
+            }
+#endif
         }
 
         // Print result

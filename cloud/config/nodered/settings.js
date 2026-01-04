@@ -7,6 +7,9 @@
  */
 
 module.exports = {
+    // Bind to all interfaces for container networking
+    uiHost: "0.0.0.0",
+    
     // Disable the editor UI completely for headless operation
     httpAdminRoot: false,
     
