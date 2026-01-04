@@ -50,5 +50,6 @@ bool Room_RTOS_ReceiveMQTTMessage(Room_MQTTMessage_t* message, uint32_t timeout_
 void Room_RTOS_PublishLEDStatus(Room_LED_t led);
 void Room_RTOS_PublishLDRData(void);
 void Room_RTOS_PublishModeStatus(void);
+void Room_RTOS_RFIDTask(void *parameter);
 
-#endif // ROOM_RTOS_H
+#endif // ROOM_RTOS_

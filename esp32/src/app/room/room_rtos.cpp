@@ -5,7 +5,8 @@
 #include "room_logic.h"
 #include "room_config.h"
 #include "../../hal/communication/hal_mqtt/hal_mqtt.h"
-
+#include "../../hal/sensors/hal_rfid/hal_rfid.h"
+#include "../../hal/hal_led/hal_led.h"
 // Task handles
 TaskHandle_t room_sensor_task_handle = NULL;
 TaskHandle_t room_control_task_handle = NULL;
@@ -18,8 +19,13 @@ QueueHandle_t room_mqtt_tx_queue = NULL;
 
 // Mutex handles
 SemaphoreHandle_t room_status_mutex = NULL;
-
 SemaphoreHandle_t room_mutex;
+
+
+//////////////////////// RFID 
+TaskHandle_t room_rfid_task_handle = NULL;
+QueueHandle_t room_rfid_event_queue = NULL;
+
 
 // Internal function prototypes
 static void Room_RTOS_WiFiConnect(void);
@@ -39,6 +45,8 @@ void Room_RTOS_Init(void)
     
     room_mutex = xSemaphoreCreateMutex();
     
+    room_rfid_event_queue = xQueueCreate(5, sizeof(Room_RFID_Event_t));
+
     // Create tasks
     xTaskCreate(
         Room_RTOS_SensorTask,
@@ -67,6 +75,17 @@ void Room_RTOS_Init(void)
         ROOM_TASK_PRIORITY_MEDIUM,
         &room_button_task_handle
     );
+
+
+    xTaskCreate(
+    Room_RTOS_RFIDTask,
+    "RFIDTask",
+    4096,                 // RFID + SPI + String = BIG stack
+    NULL,
+    ROOM_TASK_PRIORITY_MEDIUM,
+    &room_rfid_task_handle
+    );
+
     
     ROOM_DEBUG_PRINTLN("Room RTOS: Initialized");
 }
@@ -112,6 +131,30 @@ void Room_RTOS_ControlTask(void* parameter)
             xSemaphoreGive(room_status_mutex);
         }
         
+
+
+
+        Room_RFID_Event_t rfid_event;
+
+        if (xQueueReceive(room_rfid_event_queue, &rfid_event, 0) == pdTRUE) {
+
+            switch (rfid_event.type) {
+
+                case RFID_EVENT_AUTH_GRANTED:
+                    ROOM_DEBUG_PRINT("[RFID] Access granted: ");
+                    ROOM_DEBUG_PRINTLN(rfid_event.uid);
+                    break;
+
+                case RFID_EVENT_AUTH_DENIED:
+                    ROOM_DEBUG_PRINT("[RFID] Access denied: ");
+                    ROOM_DEBUG_PRINTLN(rfid_event.uid);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
         vTaskDelayUntil(&last_wake_time, frequency);
     }
 }
@@ -175,6 +218,47 @@ void Room_RTOS_ButtonTask(void* parameter)
         vTaskDelayUntil(&last_wake_time, frequency);
     }
 }
+
+void Room_RTOS_RFIDTask(void *parameter)
+{
+    ROOM_DEBUG_PRINTLN("[RFID TASK] Starting...");
+
+    if (!RFID_INIT()) {
+        ROOM_DEBUG_PRINTLN("[RFID TASK] RFID init failed!");
+        vTaskDelete(NULL);
+    }
+
+    Room_RFID_Event_t event;
+    String uid;
+
+    while (1) {
+
+        if (RFID_IsNewCardPresent()) {
+
+            if (RFID_ReadCard(&uid, NULL, NULL)) {
+
+                memset(&event, 0, sizeof(event));
+                strncpy(event.uid, uid.c_str(), sizeof(event.uid) - 1);
+                event.type = RFID_EVENT_CARD_DETECTED;
+
+                xQueueSend(room_rfid_event_queue, &event, 0);
+
+                if (RFID_CheckAuthorization(uid)) {
+                    event.type = RFID_EVENT_AUTH_GRANTED;
+                    LED_ON(ACCESS_CONTROL);
+
+                } else {
+                    event.type = RFID_EVENT_AUTH_DENIED;
+                }
+
+                xQueueSend(room_rfid_event_queue, &event, 0);
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(200)); // RFID polling interval
+    }
+}
+
 
 // ============================================================================
 // Queue Management Functions

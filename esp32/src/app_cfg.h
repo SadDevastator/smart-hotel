@@ -175,8 +175,8 @@
  * ========================= */
 // MQTT Topics
 
-#define ROOM_TOPIC_LED1_CTRL    "room/led1/control"
-#define ROOM_TOPIC_LED2_CTRL    "room/led2/control"
+#define ROOM_TOPIC_LED1_CTRL    "hotel/room101/led1/control"
+#define ROOM_TOPIC_LED2_CTRL    "hotel/room101/led2/control"
 #define ROOM_TOPIC_LED1_STATUS  "room/led1/status"
 #define ROOM_TOPIC_LED2_STATUS  "room/led2/status"
 #define ROOM_TOPIC_LDR_RAW      "room/ldr/raw"
@@ -185,14 +185,14 @@
 #define ROOM_TOPIC_MODE_STATUS  "room/mode/status"       // Current mode status
 #define ROOM_TOPIC_AUTO_DIM     "room/auto_dim/control"  // Deprecated - use mode instead
 
-#define MQTT_TOPIC_TEMP         "home/thermostat/temperature"
-#define MQTT_TOPIC_HUMIDITY     "home/thermostat/humidity"
-#define MQTT_TOPIC_TARGET       "home/thermostat/target"
+#define MQTT_TOPIC_TEMP         "hotel/101/telemetry/temperature"
+#define MQTT_TOPIC_HUMIDITY     "hotel/101/telemetry/humidity	"
+#define MQTT_TOPIC_TARGET       "hotel/101/control/target_temp"
 #define MQTT_TOPIC_HEATING      "home/thermostat/heating"
-#define MQTT_TOPIC_LUMINOSITY   "home/thermostat/luminosity"
+#define MQTT_TOPIC_LUMINOSITY   "hotel/101/telemetry/luminosity"
 #define MQTT_TOPIC_GAS          "home/thermostat/gas"
-#define MQTT_TOPIC_CONTROL      "home/thermostat/control"
-#define MQTT_TOPIC_SET_SPEED    "home/thermostat/fanspeed"
+#define MQTT_TOPIC_CONTROL      "hotel/101/control/mode"
+#define MQTT_TOPIC_SET_SPEED    "hotel/101/control/fan_speed"
 
 
 
