@@ -61,8 +61,52 @@ print(f"Confidence threshold: {CONFIDENCE_THRESHOLD:.0%}")
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 # ==================== HELPER FUNCTIONS ====================
-def preprocess_frame(frame, target_size=INPUT_SIZE):
+def simulate_esp32_cam_quality(frame):
+    """
+    Simulate ESP32-CAM image quality characteristics:
+    - Lower resolution capture then upscale
+    - JPEG compression artifacts
+    - Slight color shift (ESP32-CAM has different white balance)
+    - Added noise
+    - Reduced dynamic range
+    """
+    # 1. Simulate lower resolution capture (ESP32-CAM captures at lower res)
+    # Downscale to typical ESP32-CAM resolution then upscale back
+    esp_res = (320, 240)  # QVGA - common ESP32-CAM resolution
+    small = cv2.resize(frame, esp_res, interpolation=cv2.INTER_LINEAR)
+    
+    # 2. Simulate JPEG compression (ESP32-CAM uses JPEG)
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]  # Lower quality like ESP32
+    _, encoded = cv2.imencode('.jpg', small, encode_param)
+    decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    
+    # 3. Add slight noise (ESP32-CAM sensor noise)
+    noise = np.random.normal(0, 5, decoded.shape).astype(np.int16)
+    noisy = np.clip(decoded.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    
+    # 4. Reduce contrast slightly (ESP32-CAM has lower dynamic range)
+    alpha = 0.9  # Contrast reduction
+    beta = 10    # Brightness shift
+    adjusted = cv2.convertScaleAbs(noisy, alpha=alpha, beta=beta)
+    
+    # 5. Slight color temperature shift (ESP32-CAM tends to be warmer/cooler)
+    # Reduce blue channel slightly, boost red slightly
+    b, g, r = cv2.split(adjusted)
+    r = np.clip(r.astype(np.int16) + 5, 0, 255).astype(np.uint8)
+    b = np.clip(b.astype(np.int16) - 5, 0, 255).astype(np.uint8)
+    adjusted = cv2.merge([b, g, r])
+    
+    # 6. Upscale back to original size
+    result = cv2.resize(adjusted, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_LINEAR)
+    
+    return result
+
+def preprocess_frame(frame, target_size=INPUT_SIZE, simulate_esp=True):
     """Preprocess a frame for the model - matches training preprocessing"""
+    # Apply ESP32-CAM quality simulation if enabled
+    if simulate_esp:
+        frame = simulate_esp32_cam_quality(frame)
+    
     # Resize to model input size
     resized = cv2.resize(frame, target_size)
     # Convert BGR to RGB
@@ -73,9 +117,9 @@ def preprocess_frame(frame, target_size=INPUT_SIZE):
     batched = np.expand_dims(normalized, axis=0)
     return batched
 
-def predict(frame):
+def predict(frame, simulate_esp=True):
     """Run inference on a frame"""
-    preprocessed = preprocess_frame(frame)
+    preprocessed = preprocess_frame(frame, simulate_esp=simulate_esp)
     predictions = model.predict(preprocessed, verbose=0)
     return predictions[0]
 
@@ -106,9 +150,11 @@ def main():
     print("  q - Quit")
     print("  s - Save screenshot")
     print("  f - Toggle face detection mode")
+    print("  e - Toggle ESP32-CAM quality simulation")
     print("  +/- - Adjust confidence threshold")
     print("="*60)
-    print("\nTesting FLOAT32 (non-quantized) model...")
+    print("\nESP32-CAM quality simulation: ON (press 'e' to toggle)")
+    print("Testing FLOAT32 (non-quantized) model...")
     print("Compare confidence scores with INT8 quantized model\n")
     
     fps_time = time.time()
@@ -116,6 +162,7 @@ def main():
     fps = 0
     use_face_detection = True
     confidence_threshold = CONFIDENCE_THRESHOLD
+    simulate_esp = True  # ESP32-CAM quality simulation
     
     while True:
         ret, frame = cap.read()
@@ -143,8 +190,8 @@ def main():
                 # Extract face region
                 face_roi = frame[y1:y2, x1:x2]
                 
-                # Predict
-                predictions = predict(face_roi)
+                # Predict with ESP32-CAM simulation
+                predictions = predict(face_roi, simulate_esp=simulate_esp)
                 predicted_class = np.argmax(predictions)
                 confidence = predictions[predicted_class]
                 
@@ -180,7 +227,7 @@ def main():
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         else:
             # Full frame prediction (no face detection)
-            predictions = predict(frame)
+            predictions = predict(frame, simulate_esp=simulate_esp)
             predicted_class = np.argmax(predictions)
             confidence = predictions[predicted_class]
             
@@ -214,7 +261,8 @@ def main():
         
         # Draw info overlay
         mode_text = "Face Detection ON" if use_face_detection else "Full Frame Mode"
-        cv2.putText(display_frame, f"FPS: {fps} | {mode_text} | FLOAT32", (10, 25),
+        esp_text = "ESP32-SIM" if simulate_esp else "HD"
+        cv2.putText(display_frame, f"FPS: {fps} | {mode_text} | FLOAT32 | {esp_text}", (10, 25),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         cv2.putText(display_frame, f"Threshold: {confidence_threshold:.0%}", (10, 50),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
@@ -235,6 +283,9 @@ def main():
         elif key == ord('f'):
             use_face_detection = not use_face_detection
             print(f"Face detection: {'ON' if use_face_detection else 'OFF'}")
+        elif key == ord('e'):
+            simulate_esp = not simulate_esp
+            print(f"ESP32-CAM simulation: {'ON' if simulate_esp else 'OFF'}")
         elif key == ord('+') or key == ord('='):
             confidence_threshold = min(0.95, confidence_threshold + 0.05)
             print(f"Threshold: {confidence_threshold:.0%}")

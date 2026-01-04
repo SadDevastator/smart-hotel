@@ -77,21 +77,26 @@ const uint8_t {var_name}[] PROGMEM = {{"""
     return output_header_path
 
 def generate_class_labels_header(class_labels_json, output_header_path):
-    """Generate C header with class labels mapping"""
+    """Generate C header with class labels mapping - compatible with ESP32/Arduino"""
     
     with open(class_labels_json, 'r') as f:
         labels = json.load(f)
     
+    num_classes = len(labels)
+    
     header_content = f"""// Auto-generated class labels
 // Generated from: {Path(class_labels_json).name}
+// Number of classes: {num_classes}
+//
+// Copy this to your ESP32 project to keep labels in sync with training
 
 #ifndef CLASS_LABELS_H
 #define CLASS_LABELS_H
 
-#include <array>
-#include <string_view>
+#define NUM_CLASSES {num_classes}
 
-constexpr std::array<std::string_view, {len(labels)}> CLASS_LABELS = {{"""
+// Class labels array - order matches model output indices
+static const char* kLabels[NUM_CLASSES] = {{"""
     
     for idx in sorted(int(k) for k in labels.keys()):
         label = labels[str(idx)]
@@ -100,12 +105,10 @@ constexpr std::array<std::string_view, {len(labels)}> CLASS_LABELS = {{"""
     header_content = header_content.rstrip(',')
     header_content += f'\n}};\n\n'
     
-    header_content += f"""constexpr size_t NUM_CLASSES = {len(labels)};
-
-// Function to get label from index
-constexpr std::string_view get_class_label(int index) {{
+    header_content += f"""// Helper function to get label from index
+inline const char* get_class_label(int index) {{
     if (index >= 0 && index < NUM_CLASSES) {{
-        return CLASS_LABELS[index];
+        return kLabels[index];
     }}
     return "Unknown";
 }}
@@ -118,6 +121,7 @@ constexpr std::string_view get_class_label(int index) {{
         f.write(header_content)
     
     print(f"✓ Class labels header generated: {output_header_path}")
+    print(f"  Classes ({num_classes}): {', '.join(labels[str(i)] for i in range(num_classes))}")
     return output_header_path
 
 def main():
