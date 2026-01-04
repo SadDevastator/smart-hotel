@@ -7,7 +7,6 @@ Press 'q' to quit, 's' to save a screenshot
 
 import cv2
 import numpy as np
-import tensorflow as tf
 from tensorflow import keras
 import json
 from pathlib import Path
