@@ -14,8 +14,40 @@ namespace app {
 static char s_currentTopic[256] = {0};
 static int s_totalFrames = 0;
 static int s_totalRecognized = 0;
+static bool s_timeIsSynced = false;
+
+/**
+ * @brief Initialize NTP time synchronization
+ */
+static bool syncTime() {
+    if (s_timeIsSynced) return true;
+    
+    Serial.println("[Time] Configuring NTP...");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    
+    Serial.print("[Time] Syncing");
+    for (int i = 0; i < 20; i++) {
+        time_t now = time(nullptr);
+        if (now > 1577836800) {  // After 2020-01-01
+            s_timeIsSynced = true;
+            struct tm* timeinfo = gmtime(&now);
+            char timeBuf[32];
+            strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S UTC", timeinfo);
+            Serial.printf("\n[Time] Synced: %s\n", timeBuf);
+            return true;
+        }
+        Serial.print(".");
+        delay(500);
+    }
+    
+    Serial.println("\n[Time] Sync failed - timestamps may be incorrect!");
+    return false;
+}
 
 bool mqttManagerInit() {
+    // Sync time before MQTT initialization
+    syncTime();
+    
     // Format the topic
     snprintf(s_currentTopic, sizeof(s_currentTopic), 
              "%s/%s", MQTT_TOPIC_BASE, MQTT_LOCATION);
@@ -26,17 +58,26 @@ bool mqttManagerInit() {
 }
 
 /**
- * @brief Format current timestamp in ISO 8601 format
+ * @brief Format current timestamp in ISO 8601 format (UTC)
  * @return Timestamp string buffer (static, reused each call)
  */
 static const char* getTimestampISO8601() {
     static char timestampBuf[32];
     
-    // Get current time
-    time_t now = time(nullptr);
-    struct tm* timeinfo = gmtime(&now);
+    // Try to sync if not already synced
+    if (!s_timeIsSynced) {
+        syncTime();
+    }
     
-    // Format as ISO 8601
+    time_t now = time(nullptr);
+    
+    // Check if time is valid
+    if (now < 1577836800) {
+        strcpy(timestampBuf, "TIME_NOT_SYNCED");
+        return timestampBuf;
+    }
+    
+    struct tm* timeinfo = gmtime(&now);
     strftime(timestampBuf, sizeof(timestampBuf), 
              "%Y-%m-%dT%H:%M:%SZ", timeinfo);
     
@@ -50,7 +91,6 @@ static const char* getTimestampISO8601() {
 static const char* formatFaceDetectionPayload(const FaceResult& result) {
     static char payloadBuf[512];
     
-    // Create JSON manually (no external library required)
     snprintf(payloadBuf, sizeof(payloadBuf),
              "{"
              "\"person_name\":\"%s\","
@@ -69,10 +109,9 @@ static const char* formatFaceDetectionPayload(const FaceResult& result) {
 }
 
 bool publishFaceDetection(const FaceResult& result) {
-    // Only publish if recognized (or if configured otherwise)
 #ifdef PUBLISH_ONLY_RECOGNIZED
     if (!result.recognized) {
-        return true;  // Skip but don't fail
+        return true;
     }
 #endif
     
@@ -98,7 +137,6 @@ bool publishStatistics(int framesProcessed, int faceRecognized) {
              getTimestampISO8601(),
              MQTT_LOCATION);
     
-    // Publish to stats topic
     static char statsTopic[256];
     snprintf(statsTopic, sizeof(statsTopic), 
              "%s/%s/stats", MQTT_TOPIC_BASE, MQTT_LOCATION);
