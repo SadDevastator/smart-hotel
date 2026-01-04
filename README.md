@@ -132,15 +132,15 @@ flowchart TB
 
 ## Components
 
-| Component | Description | Documentation |
-|-----------|-------------|---------------|
-| **Cloud Infrastructure** | Docker Compose stack with all backend services | [cloud/README.md](cloud/README.md) |
-| **Dashboard** | Django-based management interface | [dashboards/README.md](dashboards/README.md) |
-| **Guest Kiosk** | Self-service check-in system | [kiosk/README.md](kiosk/README.md) |
-| **MRZ Automation** | Passport scanning and OCR | [kiosk/app/README.md](kiosk/app/README.md) |
-| **ESP32 Firmware** | Sensor and actuator code | [esp32/README.md](esp32/README.md) |
-| **ESP32-CAM** | Camera module for facial recognition | [esp32-cam/README.md](esp32-cam/README.md) |
-| **Hardware** | PCB designs and schematics | [hardware/README.md](hardware/README.md) |
+| Component | Description | Status | Documentation |
+|-----------|-------------|--------|---------------|
+| **Cloud Infrastructure** | Docker Compose stack with all backend services | ✅ Production | [cloud/README.md](cloud/README.md) |
+| **Dashboard** | Django-based management interface | ✅ Production | [dashboards/README.md](dashboards/README.md) |
+| **Guest Kiosk** | Self-service check-in system | ✅ Production | [kiosk/README.md](kiosk/README.md) |
+| **MRZ Backend** | Passport scanning and OCR microservice | ✅ Production | [kiosk/app/README.md](kiosk/app/README.md) |
+| **ESP32 Firmware** | Sensor and actuator RTOS firmware | ✅ Production | [esp32/README.md](esp32/README.md) |
+| **ESP32-CAM** | Face recognition with TensorFlow Lite & MQTT | ✅ Production | [esp32-cam/README.md](esp32-cam/README.md) |
+| **Hardware** | PCB designs and schematics | ✅ Complete | [hardware/README.md](hardware/README.md) |
 
 ## Quick Start
 
@@ -251,19 +251,37 @@ Production-ready passport scanning with layered architecture for capture, correc
 
 ### ESP32 Sensor Node
 
-The sensor nodes use ESP32-S modules with:
-- DHT22 temperature/humidity sensor
-- BH1750 luminosity sensor
-- MQ-2 gas sensor
-- WiFi connectivity for MQTT
+The sensor nodes use ESP32-S modules running FreeRTOS firmware with:
+
+| Sensor | Model | Function |
+|--------|-------|----------|
+| **Temperature/Humidity** | DHT22 | Climate monitoring |
+| **Luminosity** | LDR (photoresistor) | Ambient light detection |
+| **Gas Detection** | MQ-5 | Combustible gas monitoring |
+
+**Features:**
+- Real-time MQTT publishing to cloud backend
+- Remote control via MQTT subscriptions
+- Automatic WiFi reconnection
+- FreeRTOS task-based architecture
+- Configurable sensor polling rates
+
+📖 **[ESP32 Firmware Documentation](esp32/README.md)** - Pin configuration, MQTT topics, build instructions
 
 PCB designs available in the [hardware/ESP-32S PCB](hardware/ESP-32S%20PCB) directory with Gerber files for manufacturing.
 
 ### ESP32-CAM Module
 
-Used for:
-- Passport scanning at kiosk
-- Optional facial recognition enrollment
+✅ **Production Ready** - On-device face recognition with MQTT cloud integration.
+
+Capabilities:
+- **TensorFlow Lite Micro** for on-device inference (~80-100ms)
+- **MobileNetV2** model (96x96 input, configurable classes)
+- **Real-time MQTT publishing** of recognition events
+- **VIP detection** with instant cloud notifications
+- **Remote control** via MQTT commands
+
+📖 **[ESP32-CAM Documentation](esp32-cam/README.md)** - Model training, MQTT topics, firmware setup
 
 ## Development
 

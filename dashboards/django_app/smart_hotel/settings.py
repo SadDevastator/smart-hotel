@@ -165,18 +165,28 @@ GUEST_ACCOUNT_EXPIRY_HOURS = 24
 # Authentik server URL (base URL without trailing slash)
 AUTHENTIK_URL = os.environ.get('AUTHENTIK_URL', 'https://auth.example.com')
 
-# OIDC Discovery endpoint - automatically fetches configuration
-OIDC_OP_DISCOVERY_ENDPOINT = f"{AUTHENTIK_URL}/application/o/smart-hotel/.well-known/openid-configuration"
-
-# If not using discovery, set these manually:
-# OIDC_OP_AUTHORIZATION_ENDPOINT = f"{AUTHENTIK_URL}/application/o/authorize/"
-# OIDC_OP_TOKEN_ENDPOINT = f"{AUTHENTIK_URL}/application/o/token/"
-# OIDC_OP_USER_ENDPOINT = f"{AUTHENTIK_URL}/application/o/userinfo/"
-# OIDC_OP_JWKS_ENDPOINT = f"{AUTHENTIK_URL}/application/o/smart-hotel/jwks/"
+# OIDC Endpoints - use explicit endpoints from environment or fall back to constructed URLs
+# This allows working even when discovery endpoint is unavailable
+OIDC_OP_AUTHORIZATION_ENDPOINT = os.environ.get(
+    'OIDC_OP_AUTHORIZATION_ENDPOINT', 
+    f"{AUTHENTIK_URL}/application/o/authorize/"
+)
+OIDC_OP_TOKEN_ENDPOINT = os.environ.get(
+    'OIDC_OP_TOKEN_ENDPOINT',
+    f"{AUTHENTIK_URL}/application/o/token/"
+)
+OIDC_OP_USER_ENDPOINT = os.environ.get(
+    'OIDC_OP_USER_ENDPOINT',
+    f"{AUTHENTIK_URL}/application/o/userinfo/"
+)
+OIDC_OP_JWKS_ENDPOINT = os.environ.get(
+    'OIDC_OP_JWKS_ENDPOINT',
+    f"{AUTHENTIK_URL}/application/o/smart-hotel/jwks/"
+)
 
 # Client credentials from Authentik OAuth2/OIDC Provider
-OIDC_RP_CLIENT_ID = os.environ.get('OIDC_CLIENT_ID', 'smart-hotel')
-OIDC_RP_CLIENT_SECRET = os.environ.get('OIDC_CLIENT_SECRET', '')
+OIDC_RP_CLIENT_ID = os.environ.get('OIDC_RP_CLIENT_ID', os.environ.get('OIDC_CLIENT_ID', 'smart-hotel'))
+OIDC_RP_CLIENT_SECRET = os.environ.get('OIDC_RP_CLIENT_SECRET', os.environ.get('OIDC_CLIENT_SECRET', ''))
 
 # Signing algorithm (Authentik uses RS256 by default)
 OIDC_RP_SIGN_ALGO = os.environ.get('OIDC_SIGN_ALGO', 'RS256')
