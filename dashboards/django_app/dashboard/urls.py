@@ -14,6 +14,10 @@ urlpatterns = [
     path('api/room/<int:room_id>/set_luminosity/', views.SetLuminosityView.as_view(), name='api_set_luminosity'),
     path('api/room/<int:room_id>/set_light_mode/', views.SetLightModeView.as_view(), name='api_set_light_mode'),
     path('api/room/<int:room_id>/history/', views.RoomHistoryAPIView.as_view(), name='api_room_history'),
+    # Guest management - guests are created in Authentik, view shows synced guests
     path('guest-management/', views.GuestManagementView.as_view(), name='guest_management'),
-    path('api/generate-guest/', views.GenerateGuestAPIView.as_view(), name='api_generate_guest'),
+    # Notifications center - admin/monitor only
+    path('notifications/', views.NotificationsView.as_view(), name='notifications'),
+    path('api/notifications/status/', views.NotificationStatusAPIView.as_view(), name='api_notifications_status'),
+    path('api/notifications/send/', views.SendNotificationAPIView.as_view(), name='api_notifications_send'),
 ]

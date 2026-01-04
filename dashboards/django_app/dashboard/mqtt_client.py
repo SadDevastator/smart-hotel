@@ -222,3 +222,73 @@ def publish_light_mode(room, mode):
     except Exception as e:
         logger.error(f"[MQTT] Publish error: {e}")
         return False
+
+
+def publish_notification(message, notification_type='system', recipient=None, priority='normal', metadata=None):
+    """
+    Publish notification to Node-RED via MQTT.
+    
+    Node-RED will handle delivery via Telegram/SMS with fallback logic.
+    
+    Args:
+        message: The notification message text
+        notification_type: Type of notification (guest_credentials, alert, system)
+        recipient: Dict with optional 'phone' and 'chat_id' fields
+        priority: 'high' or 'normal'
+        metadata: Optional dict with additional context
+    
+    Returns:
+        bool: True if published successfully
+    """
+    global mqtt_client
+    
+    if mqtt_client is None or not mqtt_connected:
+        logger.warning("[MQTT] Client not connected, cannot publish notification")
+        return False
+    
+    topic = "hotel/notifications/send"
+    payload = {
+        'type': notification_type,
+        'message': message,
+        'priority': priority,
+        'recipient': recipient or {},
+        'metadata': metadata or {}
+    }
+    
+    try:
+        mqtt_client.publish(topic, json.dumps(payload), qos=1)
+        logger.info(f"[MQTT] Published notification to {topic}: {notification_type}")
+        return True
+    except Exception as e:
+        logger.error(f"[MQTT] Notification publish error: {e}")
+        return False
+
+
+def publish_alert(alert_type, data):
+    """
+    Publish system alert to Node-RED via MQTT.
+    
+    Alert types: gas, temperature, system
+    
+    Args:
+        alert_type: The type of alert
+        data: Dict with alert data
+    
+    Returns:
+        bool: True if published successfully
+    """
+    global mqtt_client
+    
+    if mqtt_client is None or not mqtt_connected:
+        logger.warning("[MQTT] Client not connected, cannot publish alert")
+        return False
+    
+    topic = f"hotel/alerts/{alert_type}"
+    
+    try:
+        mqtt_client.publish(topic, json.dumps(data), qos=1)
+        logger.info(f"[MQTT] Published alert to {topic}")
+        return True
+    except Exception as e:
+        logger.error(f"[MQTT] Alert publish error: {e}")
+        return False

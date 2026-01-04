@@ -16,6 +16,8 @@
 - [Services](#services)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
+- [Authentik Setup](#authentik-setup)
+- [Notification System](#notification-system)
 - [Network Topology](#network-topology)
 - [Data Persistence](#data-persistence)
 - [Monitoring & Observability](#monitoring--observability)
@@ -44,17 +46,28 @@ flowchart TB
     end
 
     subgraph DOCKER["Docker Network"]
+        subgraph AUTH_LAYER["Authentication Layer"]
+            AUTHENTIK["Authentik<br/>Identity Provider<br/>:9000"]
+            AUTH_DB["Authentik DB<br/>PostgreSQL"]
+            AUTH_REDIS["Redis<br/>Session Store"]
+        end
+
         subgraph DATA_LAYER["Data Layer"]
             MOSQUITTO["Mosquitto<br/>MQTT Broker<br/>:1883 / :9001 WS"]
             TELEGRAF["Telegraf<br/>Data Bridge"]
             INFLUXDB["InfluxDB<br/>Time-Series DB<br/>:8086"]
             GRAFANA["Grafana<br/>Visualization<br/>:3000"]
-            POSTGRES["PostgreSQL<br/>Users/Rooms"]
+            POSTGRES["PostgreSQL<br/>Rooms/Reservations"]
         end
         
         subgraph APP_LAYER["Application Layer"]
             DASHBOARD["Dashboard<br/>Django/ASGI<br/>:8001"]
+            NODERED["Node-RED<br/>Notification Gateway<br/>:1880"]
+        end
+        
+        subgraph NOTIFY["Notification Services"]
             TELEGRAM["Telegram<br/>Bot API"]
+            SMS["Twilio<br/>SMS API"]
         end
         
         subgraph KIOSK_NET["Kiosk Network (Isolated)"]
@@ -65,16 +78,26 @@ flowchart TB
 
     ESP32 <-->|MQTT| MOSQUITTO
     STAFF -->|HTTP| DASHBOARD
+    STAFF -->|OIDC| AUTHENTIK
     GUESTS -->|HTTP| KIOSK
     
     MOSQUITTO --> TELEGRAF
     TELEGRAF --> INFLUXDB
     INFLUXDB --> GRAFANA
+    GRAFANA -->|OAuth| AUTHENTIK
+    
+    AUTHENTIK --> AUTH_DB
+    AUTHENTIK --> AUTH_REDIS
     
     DASHBOARD <--> POSTGRES
     DASHBOARD <--> MOSQUITTO
-    DASHBOARD --> TELEGRAM
+    DASHBOARD --> NODERED
     DASHBOARD --> INFLUXDB
+    DASHBOARD -->|OIDC| AUTHENTIK
+    
+    NODERED --> TELEGRAM
+    NODERED --> SMS
+    NODERED <--> MOSQUITTO
     
     KIOSK --> MRZ
 ```
@@ -111,10 +134,20 @@ flowchart LR
 | Service | Image | Port | Description |
 |---------|-------|------|-------------|
 | **InfluxDB** | `influxdb:2-alpine` | 8086 | Time-series database for sensor data |
-| **PostgreSQL** | `postgres:16-alpine` | 5432 (internal) | Relational database for users/rooms |
+| **PostgreSQL** | `postgres:16-alpine` | 5432 (internal) | Relational database for rooms/reservations |
 | **Mosquitto** | `eclipse-mosquitto:latest` | 1883, 9001 | MQTT broker for IoT messaging |
 | **Telegraf** | `telegraf:alpine` | - | MQTT → InfluxDB data bridge |
 | **Grafana** | `grafana/grafana:latest` | 3000 | Metrics visualization |
+
+### Authentication & Messaging
+
+| Service | Image | Port | Description |
+|---------|-------|------|-------------|
+| **Authentik Server** | `ghcr.io/goauthentik/server` | 9000, 9443 | Identity provider (OIDC/OAuth2) |
+| **Authentik Worker** | `ghcr.io/goauthentik/server` | - | Background task processor |
+| **Authentik DB** | `postgres:16-alpine` | - | Authentik PostgreSQL database |
+| **Authentik Redis** | `redis:alpine` | - | Session store & cache |
+| **Node-RED** | `nodered/node-red:latest` | 1880 | Notification gateway (Telegram + SMS) |
 
 ### Application Services
 
@@ -131,7 +164,7 @@ flowchart LR
 - Docker Engine 20.10+
 - Docker Compose 2.0+
 - 4GB+ available RAM
-- Ports 3000, 8001, 8002, 8086, 1883 available
+- Ports 3000, 8001, 8002, 9000, 8086, 1883 available
 
 ### Production Deployment
 
@@ -139,6 +172,12 @@ flowchart LR
 # Clone the repository
 git clone https://github.com/yourusername/smart-hotel.git
 cd smart-hotel/cloud
+
+# Generate secure environment configuration
+./generate-env.sh
+
+# Review and customize .env (especially external services)
+nano .env
 
 # Start all services
 docker compose up --build -d
@@ -149,6 +188,24 @@ docker compose ps
 # View logs
 docker compose logs -f
 ```
+
+### Post-Deployment Setup
+
+1. **Authentik Initial Setup:**
+   ```bash
+   # Access Authentik at http://localhost:9000/if/flow/initial-setup/
+   # Create your admin account
+   ```
+
+2. **Create OAuth2 Provider:**
+   - Go to Authentik Admin → Applications → Providers
+   - Create OAuth2/OIDC Provider named `smart-hotel`
+   - Copy the Client Secret to `.env` as `OIDC_CLIENT_SECRET`
+   - Restart dashboard: `docker compose restart dashboard`
+
+3. **Configure Groups:**
+   - Create groups: `smart-hotel-admins`, `smart-hotel-monitors`, `smart-hotel-guests`
+   - Assign users to appropriate groups
 
 ### Development Mode
 
@@ -181,58 +238,254 @@ docker compose down -v
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Grafana | http://localhost:3000 | `admin` / `admin` |
-| InfluxDB | http://localhost:8086 | `admin` / `adminpass` |
-| Dashboard | http://localhost:8001 | `admin` / `admin123` |
+| Authentik | http://localhost:9000 | Created during setup |
+| Grafana | http://localhost:3000 | From `.env` |
+| InfluxDB | http://localhost:8086 | From `.env` |
+| Dashboard | http://localhost:8001 | Via Authentik SSO |
 | Kiosk | http://localhost:8002 | (no auth for guests) |
+| Node-RED | http://localhost:1880/api/health | Headless (no UI) |
 | Mosquitto | mqtt://localhost:1883 | (no auth by default) |
 
 ### Environment Variables
 
-#### InfluxDB
+All configuration is managed via the `.env` file. Run `./generate-env.sh` to create one with secure random secrets.
 
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `DOCKER_INFLUXDB_INIT_USERNAME` | `admin` | Admin username |
-| `DOCKER_INFLUXDB_INIT_PASSWORD` | `adminpass` | Admin password |
-| `DOCKER_INFLUXDB_INIT_ORG` | `org` | Organization name |
-| `DOCKER_INFLUXDB_INIT_BUCKET` | `bucket` | Default bucket |
-| `DOCKER_INFLUXDB_INIT_ADMIN_TOKEN` | `admin-token` | API token |
+See `.env.example` for complete documentation of all variables.
 
-#### Dashboard
+#### Key Configuration Categories
 
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `DJANGO_SECRET_KEY` | (set unique) | Django secret key |
-| `DJANGO_DEBUG` | `True`/`False` | Debug mode |
-| `MQTT_BROKER` | `mosquitto` | MQTT hostname |
-| `MQTT_PORT` | `1883` | MQTT port |
-| `INFLUX_URL` | `http://influxdb:8086` | InfluxDB URL |
-| `TELEGRAM_BOT_TOKEN` | (optional) | Telegram bot token |
-| `TELEGRAM_CHAT_ID` | (optional) | Telegram chat ID |
+| Category | Variables | Description |
+|----------|-----------|-------------|
+| **Database** | `POSTGRES_*` | Main PostgreSQL settings |
+| **InfluxDB** | `INFLUX_*` | Time-series database |
+| **Authentik** | `AUTHENTIK_*`, `OIDC_*` | Identity provider |
+| **Grafana** | `GRAFANA_*` | Visualization dashboard |
+| **Node-RED** | `NODERED_*`, `TWILIO_*` | SMS gateway |
+| **Telegram** | `TELEGRAM_*` | Bot notifications |
+| **Sessions** | `SESSION_COOKIE_AGE` | 7 days default for guests |
 
-#### PostgreSQL
+#### External Services (Manual Configuration)
 
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `POSTGRES_DB` | `smarthotel` | Database name |
-| `POSTGRES_USER` | `smarthotel` | Database user |
-| `POSTGRES_PASSWORD` | `smarthotel` | Database password |
+| Service | How to Get Credentials |
+|---------|------------------------|
+| **Twilio** | https://console.twilio.com/ |
+| **Telegram** | Create bot via @BotFather |
+| **SMTP** | Your email provider |
 
 ### Configuration Files
 
 ```
-config/
-├── grafana/
-│   └── provisioning/        # Grafana datasources and dashboards
-├── influxdb/
-│   ├── config.yml           # InfluxDB configuration
-│   └── init-telegraf.sh     # Telegraf user initialization
-├── mosquitto/
-│   └── mosquitto.conf       # MQTT broker settings
-└── telegraf/
-    └── telegraf.conf        # MQTT→InfluxDB bridge config
+cloud/
+├── .env                     # Environment variables (generate with ./generate-env.sh)
+├── .env.example             # Template with documentation
+├── generate-env.sh          # Script to generate secure .env
+├── docker-compose.yml       # Main compose file
+├── docker-compose-dev.yml   # Development overrides
+└── config/
+    ├── grafana/
+    │   └── provisioning/    # Grafana datasources and dashboards
+    ├── influxdb/
+    │   ├── config.yml       # InfluxDB configuration
+    │   └── init-telegraf.sh # Telegraf user initialization
+    ├── mosquitto/
+    │   └── mosquitto.conf   # MQTT broker settings
+    ├── nodered/
+    │   ├── settings.js      # Node-RED headless config
+    │   └── flows.json       # Notification gateway flows
+    └── telegraf/
+        └── telegraf.conf    # MQTT→InfluxDB bridge config
 ```
+
+## Authentik Setup
+
+Authentik provides centralized identity management for the Smart Hotel system.
+
+### Initial Configuration
+
+After starting the stack, complete the initial setup:
+
+```bash
+# Access Authentik setup wizard
+open http://localhost:9000/if/flow/initial-setup/
+```
+
+Create your admin account with a strong password.
+
+### Create OAuth2/OIDC Provider
+
+1. Go to **Admin Interface** → **Applications** → **Providers**
+2. Click **Create** → **OAuth2/OpenID Provider**
+3. Configure:
+
+| Setting | Value |
+|---------|-------|
+| Name | `smart-hotel` |
+| Authorization flow | `default-provider-authorization-explicit-consent` |
+| Client type | `Confidential` |
+| Client ID | `smart-hotel` |
+| Redirect URIs | `http://localhost:8001/accounts/oidc/callback/` |
+
+4. Copy the generated **Client Secret** and update `.env`:
+   ```bash
+   OIDC_CLIENT_SECRET=<paste-secret-here>
+   ```
+
+5. Restart the dashboard:
+   ```bash
+   docker compose restart dashboard
+   ```
+
+### Create Application
+
+1. Go to **Admin Interface** → **Applications** → **Applications**
+2. Click **Create** and fill in:
+   - Name: `Smart Hotel`
+   - Slug: `smart-hotel`
+   - Provider: Select `smart-hotel`
+
+### Configure Groups
+
+Create groups for role-based access control:
+
+| Group Name | Django Role | Permissions |
+|------------|-------------|-------------|
+| `smart-hotel-admins` | Admin | Full access, user management |
+| `smart-hotel-monitors` | Monitor | View all rooms, notification center |
+| `smart-hotel-guests` | Guest | View/control assigned room only |
+
+### User Management
+
+**Staff Users:**
+1. Create user in Authentik Directory → Users
+2. Add to `smart-hotel-admins` or `smart-hotel-monitors` group
+3. User can now log in at http://localhost:8001
+
+**Guest Users:**
+1. Create user with temporary credentials
+2. Add to `smart-hotel-guests` group
+3. Set custom attributes:
+   ```json
+   {
+     "room_number": "101",
+     "expires_at": "2026-01-10T12:00:00Z"
+   }
+   ```
+
+### Session Configuration
+
+Sessions are configured for hotel guest convenience:
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `SESSION_COOKIE_AGE` | 604800 (7 days) | Session lifetime |
+| `OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS` | 900 (15 min) | Token refresh |
+
+Adjust in `.env` as needed.
+
+## Notification System
+
+The notification system uses Node-RED as a unified gateway for Telegram and SMS notifications with automatic fallback logic.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph DASHBOARD["Django Dashboard"]
+        API["Notification API"]
+        MQTT_PUB["MQTT Publisher"]
+    end
+    
+    subgraph NODERED["Node-RED Gateway"]
+        RECV["MQTT Receiver"]
+        LOGIC["Fallback Logic"]
+        TG["Telegram Sender"]
+        SMS["SMS Sender"]
+        FAIL["Failure Handler"]
+    end
+    
+    subgraph EXTERNAL["External Services"]
+        TELEGRAM["Telegram API"]
+        TWILIO["Twilio API"]
+    end
+    
+    API --> MQTT_PUB
+    MQTT_PUB -->|hotel/notifications/send| RECV
+    RECV --> LOGIC
+    LOGIC -->|Try first| TG
+    LOGIC -->|Fallback| SMS
+    TG --> TELEGRAM
+    SMS --> TWILIO
+    TG -->|Failed| SMS
+    SMS -->|Failed| FAIL
+    FAIL -->|hotel/notifications/failure| DASHBOARD
+```
+
+### Notification Flow
+
+1. Dashboard publishes notification to MQTT topic `hotel/notifications/send`
+2. Node-RED receives notification and checks configured services
+3. **If Telegram configured**: Try Telegram first
+4. **If Telegram fails or not configured**: Try SMS
+5. **If both fail**: Publish failure to `hotel/notifications/failure`
+6. Results published to `hotel/notifications/result`
+
+### Configuration
+
+Set up notification services in `.env`:
+
+```bash
+# Telegram Bot (optional)
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
+TELEGRAM_CHAT_ID=123456789
+
+# Twilio SMS (optional)
+TWILIO_ACCOUNT_SID=ACxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxx
+TWILIO_PHONE_NUMBER=+1234567890
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Service health and configuration status |
+| `/api/status` | GET | Detailed statistics |
+| `/api/notify` | POST | Send notification (HTTP alternative) |
+
+### MQTT Topics
+
+| Topic | Direction | Payload |
+|-------|-----------|---------|
+| `hotel/notifications/send` | IN | `{type, message, recipient, priority}` |
+| `hotel/notifications/result` | OUT | `{id, success, method, attempts}` |
+| `hotel/notifications/failure` | OUT | `{id, reason, attempts}` |
+| `hotel/alerts/#` | IN | System alerts (gas, temperature, etc.) |
+
+### Notification Payload
+
+```json
+{
+  "type": "guest_credentials",
+  "message": "Welcome! WiFi: HotelGuest, Password: abc123",
+  "recipient": {
+    "phone": "+1234567890",
+    "chat_id": "123456789"
+  },
+  "priority": "normal",
+  "metadata": {
+    "room": "101",
+    "guest": "John Doe"
+  }
+}
+```
+
+### Dashboard Integration
+
+The Notifications page (`/notifications/`) provides:
+- Real-time service status
+- Delivery statistics
+- Send test notifications (admin only)
+- View recent failures
 
 ## Network Topology
 
@@ -285,7 +538,13 @@ All persistent data is stored in Docker named volumes:
 | `grafana-logs` | Grafana | Log files |
 | `mosquitto-data` | Mosquitto | Retained messages |
 | `mosquitto-logs` | Mosquitto | Broker logs |
-| `postgres-data` | PostgreSQL | Users, rooms, history |
+| `postgres-data` | PostgreSQL | Rooms, reservations |
+| `authentik-db` | Authentik DB | User data, config |
+| `authentik-redis` | Authentik Redis | Sessions, cache |
+| `authentik-media` | Authentik | Uploaded media |
+| `authentik-templates` | Authentik | Custom templates |
+| `authentik-certs` | Authentik | SSL certificates |
+| `nodered-data` | Node-RED | Flow data |
 | `kiosk_data` | Kiosk | SQLite database |
 | `kiosk_media` | Kiosk | Uploaded files |
 | `mrz_logs` | MRZ Backend | Processed passports |
@@ -437,10 +696,13 @@ docker compose up -d
 
 ⚠️ **Production Checklist:**
 
-1. **Change all default passwords** (Grafana, InfluxDB, PostgreSQL, Django)
-2. **Set unique secret keys** for Django applications
-3. **Enable MQTT authentication** in mosquitto.conf
-4. **Use HTTPS** with proper certificates
-5. **Restrict network access** to internal services only
-6. **Enable firewall rules** for exposed ports
-7. **Regular backups** of all volumes
+1. **Run `./generate-env.sh`** to create secure secrets automatically
+2. **Complete Authentik setup** - create admin account and OAuth2 provider
+3. **Configure external URLs** - update `AUTHENTIK_EXTERNAL_URL` for your domain
+4. **Enable HTTPS** - configure reverse proxy (nginx, traefik) for all services
+5. **Set up Twilio** for SMS notifications (optional)
+6. **Configure Telegram** for admin alerts (optional)
+7. **Enable MQTT authentication** in mosquitto.conf for IoT security
+8. **Regular backups** of all volumes
+9. **Update Authentik** regularly for security patches
+10. **Review session timeouts** - default 7 days may be too long for some deployments
