@@ -7,7 +7,6 @@ Renumbers all images in dataset folders sequentially after removing bad images.
 import os
 import sys
 from pathlib import Path
-import shutil
 
 def get_image_files(folder_path):
     """Get all image files from a folder sorted by name."""

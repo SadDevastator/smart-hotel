@@ -2,4 +2,3 @@
 */.*
 !.gitignore
 !.gitkeep
-esp32-cam/firmware/FacialRecognitionIOT/src/app/app_mqtt_manager.zip

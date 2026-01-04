@@ -152,26 +152,19 @@ If you've configured a DOCX template, the system automatically populates it with
 
 The system follows a clean **layered architecture** where each layer has a single responsibility and can be tested or replaced independently. This design emerged through iterative real-world testing—each layer addresses specific failure modes encountered in production conditions.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  ScannerCoordinator                     │
-│         (Central orchestration & error handling)        │
-└─────────────────────────────────────────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌───────────────┐   ┌──────────────┐   ┌──────────────┐
-│   Layer 1     │   │   Layer 2    │   │   Layer 3    │
-│   Capture     │──▶│ Readjustment │──▶│ MRZ Extract  │
-│               │   │              │   │   & Save     │
-└───────────────┘   └──────────────┘   └──────────────┘
-                                                │
-                                                ▼
-                                        ┌──────────────┐
-                                        │   Layer 4    │
-                                        │   Document   │
-                                        │   Filling    │
-                                        └──────────────┘
+```mermaid
+flowchart TB
+    COORD["ScannerCoordinator\n(Central orchestration & error handling)"]
+    
+    COORD --> L1
+    COORD --> L2
+    COORD --> L3
+    
+    subgraph PIPELINE["Processing Pipeline"]
+        L1["Layer 1\nCapture"] --> L2["Layer 2\nReadjustment"]
+        L2 --> L3["Layer 3\nMRZ Extract & Save"]
+        L3 --> L4["Layer 4\nDocument Filling"]
+    end
 ```
 
 **Layer 1 - Capture**: Manages USB camera I/O, live preview streaming, and raw frame acquisition

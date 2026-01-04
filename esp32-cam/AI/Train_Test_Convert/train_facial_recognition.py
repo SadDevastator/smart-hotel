@@ -615,4 +615,4 @@ def main():
     print(f"  1. Plot loss AND accuracy curves from training_history.json")
     print(f"  2. Test the model with test_camera.py")
     print(f"  3. Run: python3 convert_tflite_to_c.py <model_dir>/face_recognition_int8.tflite")
-    print(f"  4. Copy model_data.h to ESP32 firmware
+    print(f"  4. Copy model_data.h to ESP32 firmware project")
