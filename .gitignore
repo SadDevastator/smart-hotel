@@ -4,3 +4,4 @@
 !.gitkeep
 staticfiles/
 __pycache__/
+!.env.example

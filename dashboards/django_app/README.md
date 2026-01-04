@@ -30,6 +30,12 @@ The Smart Hotel Dashboard is the central management interface for hotel staff. I
 
 ## Features
 
+### Authentication via Authentik
+- **Single Sign-On (SSO)** using OpenID Connect (OIDC)
+- **Centralized User Management** in Authentik identity provider
+- **Role Mapping** from Authentik groups to Django permissions
+- See [cloud/README.md - Authentik Setup](../../cloud/README.md#authentik-setup) for configuration
+
 ### Role-Based Access Control
 - **Admin**: Full access to all rooms, control temperature and lighting, manage guest accounts
 - **Monitor**: View-only access to all rooms, cannot modify settings
@@ -47,10 +53,16 @@ The Smart Hotel Dashboard is the central management interface for hotel staff. I
 - **Real-time Feedback**: Immediate visual confirmation of control changes
 
 ### Guest Account Management
-- Generate temporary guest accounts via dashboard
-- Auto-expire accounts after configurable duration
-- Send credentials via Telegram with formatted messages
-- Track active guest sessions
+- Create guest accounts in Authentik with room assignments
+- Auto-expire accounts based on custom attributes
+- Send credentials via unified notification system (Telegram → SMS fallback)
+- Track active guest sessions synced from Authentik
+
+### Notification Center (Admin/Monitor)
+- Real-time service status (Telegram, SMS configuration)
+- Delivery statistics dashboard
+- Send test notifications
+- View failed delivery attempts
 
 ## Architecture
 
@@ -236,7 +248,8 @@ All MQTT messages use JSON payloads:
 | `/api/room/<id>/set_target/` | POST | Set target temperature | Can control |
 | `/api/room/<id>/set_light_mode/` | POST | Set light mode (auto/manual) | Can control |
 | `/api/room/<id>/history/` | GET | Sensor history | Room access |
-| `/api/generate-guest/` | POST | Generate guest account | Admin only |
+
+> **Note:** Guest account management has been moved to Authentik. See [AUTHENTIK_SETUP.md](../../AUTHENTIK_SETUP.md) for details.
 
 ### Request/Response Examples
 
@@ -260,7 +273,9 @@ curl -X POST http://localhost:8000/api/room/1/set_light_mode/ \
 |----------|-------------|
 | `/ws/dashboard/` | Dashboard-wide updates |
 | `/ws/room/<id>/` | Single room updates |
-| `/ws/admin/` | Admin operations (guest generation) |
+| `/ws/admin/` | Admin operations (view synced guests) |
+
+> **Note:** Guest generation/revocation has been moved to Authentik. The admin WebSocket now only supports read-only guest list queries.
 
 ### WebSocket Message Format
 
@@ -323,70 +338,45 @@ django_app/
 
 ## Security Notes
 
-- Change the default admin password in production
-- Set a proper `DJANGO_SECRET_KEY` in production
-- Use HTTPS in production
-- Consider rate limiting for API endpoints
+- All authentication is handled by Authentik (OIDC/SSO)
+- Set a proper `DJANGO_SECRET_KEY` in production (use `generate-env.sh`)
+- Use HTTPS in production with a reverse proxy
+- Configure session timeouts appropriately in `.env`
+- See [AUTHENTIK_SETUP.md](../../AUTHENTIK_SETUP.md) for identity provider security
 
-## Password Management
+## User Management
 
-### Changing Passwords (After Login)
+### Authentication via Authentik
 
-Admin and Monitor users can change their passwords via:
-1. Navigate to **Settings** (gear icon in sidebar)
-2. Click **Change Password**
-3. Enter current password and new password
+All user management (creating users, password resets, MFA) is handled through Authentik:
 
-### Manually Resetting Admin/Monitor Passwords
+1. **Access Authentik Admin**: http://localhost:9000/if/admin/
+2. **Create Users**: Directory → Users → Create
+3. **Assign Roles**: Add users to appropriate groups:
+   - `smart-hotel-admins` - Full admin access
+   - `smart-hotel-monitors` - View-only access
+   - `smart-hotel-guests` - Guest room access
 
-For security reasons, admin and monitor accounts **cannot** use the "Forgot Password" feature. To reset these passwords manually:
+### Password Reset
 
-#### Using Django Shell (Recommended)
+Users can reset their passwords through Authentik:
+1. Click "Forgot Password" on the login page
+2. Authentik sends reset email (requires SMTP configuration)
+3. User follows link to set new password
 
-```bash
-cd dashboards/django_app
-python manage.py shell
-```
+### Guest Account Setup
 
-```python
-from accounts.models import User
-
-# Reset admin password
-admin = User.objects.get(username='admin')
-admin.set_password('new_secure_password')
-admin.save()
-
-# Reset monitor password
-monitor = User.objects.get(username='monitor')
-monitor.set_password('new_secure_password')
-monitor.save()
-
-exit()
-```
-
-#### Using Django Management Command
-
-```bash
-python manage.py changepassword admin
-# You will be prompted to enter a new password
-
-python manage.py changepassword monitor
-```
-
-#### In Docker Container
-
-```bash
-# Access the running container
-docker exec -it dashboard python manage.py shell
-
-# Then use the Python commands above
-# Or use changepassword command:
-docker exec -it dashboard python manage.py changepassword admin
-```
-
-### Guest Password Reset
-
-Guest accounts can use the "Forgot Password" link on the login page. A reset link will be sent via Telegram to the configured chat.
+For hotel guests:
+1. Create user in Authentik
+2. Add to `smart-hotel-guests` group
+3. Set custom attributes:
+   ```json
+   {
+     "room_number": "101",
+     "expires_at": "2026-01-10T12:00:00Z"
+   }
+   ```
+4. Credentials are synced to Django on first login
 
 ## Theme Support
 

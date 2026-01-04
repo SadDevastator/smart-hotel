@@ -35,8 +35,11 @@ Smart Hotel is a full-stack IoT solution for modern hotel management. The system
 | **Climate Control** | Remote temperature and lighting management |
 | **Self Check-in Kiosk** | Passport scanning with MRZ extraction |
 | **Multi-language Support** | EN, DE, PL, UK, RU for international guests |
+| **SSO Authentication** | Authentik-based identity management with OIDC |
 | **Role-based Access** | Admin, Monitor, and Guest permission levels |
-| **Telegram Notifications** | Guest credential delivery |
+| **SMS Notifications** | Guest credential delivery via Node-RED (Twilio) |
+| **Telegram Alerts** | Admin notifications with automatic fallback |
+| **Unified Notifications** | Telegram → SMS fallback with admin alerts |
 | **Historical Analytics** | Time-series data visualization with Grafana |
 
 ## System Architecture
@@ -45,37 +48,46 @@ Smart Hotel is a full-stack IoT solution for modern hotel management. The system
 flowchart TB
     subgraph HOTEL_ROOMS["Hotel Rooms"]
         ESP32_SENSORS["ESP32 Sensors<br/>Temp/Humidity/Light/Gas"]
-        ESP32_ACTUATORS["ESP32 Actuators<br/>Heater/Lights"]
+        ESP32_ACTUATORS["ESP32 Actuators<br/>AC/Lights"]
     end
 
-    subgraph HOTEL_LOBBY["Hotel Lobby"]
-        KIOSK["Kiosk Terminal<br/>:8002"]
-        CAMERA["Camera<br/>Passport Scanning"]
-    end
-
-    subgraph CLOUD["Cloud Infrastructure - Docker Compose"]
-        subgraph DATA_PIPELINE["Data Pipeline"]
-            MOSQUITTO["Mosquitto<br/>MQTT Broker<br/>:1883"]
-            TELEGRAF["Telegraf<br/>Data Bridge"]
-            INFLUXDB["InfluxDB<br/>Time-Series DB<br/>:8086"]
-            GRAFANA["Grafana<br/>Visualization<br/>:3000"]
+    subgraph CLOUD["Cloud Infrastructure"]
+        subgraph AUTH_LAYER["Authentication"]
+            AUTHENTIK["Authentik<br/>Identity Provider"]
         end
-        
+
         subgraph APPLICATIONS["Applications"]
-            DASHBOARD["Dashboard<br/>Django/Daphne<br/>:8001"]
-            POSTGRES["PostgreSQL<br/>Users/Rooms"]
+            DASHBOARD["Dashboard<br/>Django/Daphne"]
+            POSTGRES["PostgreSQL<br/>Rooms/Reservations"]
+            NODERED["Node-RED<br/>Notification Gateway"]
+        end
+
+        subgraph NOTIFICATIONS["Notification Services"]
             TELEGRAM["Telegram<br/>Bot API"]
+            TWILIO["Twilio<br/>SMS API"]
+        end
+
+        subgraph DATA_PIPELINE["Data Pipeline"]
+            MOSQUITTO["Mosquitto<br/>MQTT Broker"]
+            TELEGRAF["Telegraf<br/>Data Bridge"]
+            INFLUXDB["InfluxDB<br/>Time-Series DB"]
+            GRAFANA["Grafana<br/>Visualization"]
         end
         
         subgraph KIOSK_NETWORK["Kiosk Network"]
-            KIOSK_APP["Kiosk App<br/>Django<br/>:8002"]
+            KIOSK_APP["Kiosk App<br/>Django"]
             MRZ_BACKEND["MRZ Backend<br/>Flask<br/>Passport OCR"]
         end
     end
 
     subgraph BACK_OFFICE["Back Office"]
-        STAFF_PC["Staff PC"]
-        MANAGER_TABLET["Manager Tablet"]
+        STAFF["Staff"]
+        Admin["Admin"]
+    end
+
+    subgraph HOTEL_LOBBY["Hotel Lobby"]
+        KIOSK["Kiosk Terminal<br/>Self Check-in"]
+        CAMERA["Camera<br/>Passport Scanning"]
     end
 
     ESP32_SENSORS -->|MQTT| MOSQUITTO
@@ -83,17 +95,27 @@ flowchart TB
     MOSQUITTO --> TELEGRAF
     TELEGRAF --> INFLUXDB
     INFLUXDB --> GRAFANA
-    MOSQUITTO --> DASHBOARD
-    DASHBOARD --> POSTGRES
-    DASHBOARD --> TELEGRAM
-    DASHBOARD --> MOSQUITTO
     INFLUXDB --> DASHBOARD
+    DASHBOARD --> POSTGRES
+    DASHBOARD -->|MQTT| NODERED
+    DASHBOARD --> MOSQUITTO
+    DASHBOARD -->|OIDC| AUTHENTIK
+    GRAFANA -->|OAuth| AUTHENTIK
     
-    KIOSK --> CAMERA
-    KIOSK_APP --> MRZ_BACKEND
+    NODERED --> TELEGRAM
+    NODERED --> TWILIO
     
-    STAFF_PC -->|HTTP :8001| DASHBOARD
-    MANAGER_TABLET -->|HTTP :8001| DASHBOARD
+    KIOSK -->|WebRTC| CAMERA
+    KIOSK -->|HTTPS| KIOSK_APP
+    KIOSK_APP -->|API| MRZ_BACKEND
+    KIOSK_APP -->|API| DASHBOARD
+    
+    STAFF -->|OIDC| AUTHENTIK
+    Admin -->|OIDC| AUTHENTIK
+    STAFF --> DASHBOARD
+    Admin --> DASHBOARD
+    GUEST["Guest"] --> KIOSK
+    GUEST_PHONE["Guest Phone"] --> DASHBOARD
 ```
 
 ### Data Flow Summary
@@ -102,9 +124,11 @@ flowchart TB
 |------|------|----------|
 | Sensor → Cloud | ESP32 → Mosquitto → Telegraf → InfluxDB | MQTT |
 | Cloud → Actuator | Dashboard → Mosquitto → ESP32 | MQTT |
+| User Authentication | Browser → Authentik → Dashboard | OIDC |
 | Guest Check-in | Kiosk → MRZ Backend → Document | HTTP/REST |
 | Staff Monitoring | Dashboard → PostgreSQL/InfluxDB | HTTP/WebSocket |
-| Notifications | Dashboard → Telegram API | HTTPS |
+| SMS Notifications | Dashboard → MQTT → Node-RED → Twilio | MQTT/HTTPS |
+| Telegram Alerts | Dashboard → MQTT → Node-RED → Telegram | MQTT/HTTPS |
 
 ## Components
 
@@ -134,6 +158,12 @@ flowchart TB
 git clone https://github.com/yourusername/smart-hotel.git
 cd smart-hotel/cloud
 
+# Generate secure environment configuration
+./generate-env.sh
+
+# Review and customize .env (add Twilio/Telegram credentials)
+nano .env
+
 # Start all services
 docker compose up --build -d
 
@@ -141,14 +171,22 @@ docker compose up --build -d
 docker compose ps
 ```
 
+### Initial Setup
+
+1. **Authentik Setup**: Visit http://localhost:9000/if/flow/initial-setup/
+2. **Create OAuth2 Provider**: Admin → Applications → Providers → Create `smart-hotel`
+3. **Update OIDC Secret**: Copy client secret to `.env` and restart dashboard
+
 ### Access Points
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| **Staff Dashboard** | http://localhost:8001 | `admin` / `admin123` |
+| **Authentik** | http://localhost:9000 | Created during setup |
+| **Staff Dashboard** | http://localhost:8001 | Via Authentik SSO |
 | **Guest Kiosk** | http://localhost:8002 | (no auth) |
-| **Grafana** | http://localhost:3000 | `admin` / `admin` |
-| **InfluxDB** | http://localhost:8086 | `admin` / `adminpass` |
+| **Grafana** | http://localhost:3000 | From `.env` |
+| **InfluxDB** | http://localhost:8086 | From `.env` |
+| **Node-RED** | http://localhost:1880/api/health | Headless (no UI) |
 
 ### Development Mode
 
