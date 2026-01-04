@@ -150,21 +150,37 @@ If you've configured a DOCX template, the system automatically populates it with
 
 ## Architecture
 
+System Component Diagram
+
+```mermaid
+graph LR
+    Camera["USB Camera"] -->|Raw Frame| L1["Layer 1<br/>Capture"]
+    L1 -->|Frame| L2["Layer 2<br/>Readjustment"]
+    L2 -->|Processed Image| L3["Layer 3<br/>MRZ Extract"]
+    L3 -->|MRZ Data| L4["Layer 4<br/>Document Fill"]
+    L3 -->|JSON| Storage[("Storage")]
+    L4 -->|Filled PDF| Storage
+    L1 -->|Preview| Web["Web UI"]
+    
+    style Camera fill:#e1f5e1
+    style L1 fill:#e3f2fd
+    style L2 fill:#f3e5f5
+    style L3 fill:#fff3e0
+    style L4 fill:#fce4ec
+    style Storage fill:#eceff1
+```
+
 The system follows a clean **layered architecture** where each layer has a single responsibility and can be tested or replaced independently. This design emerged through iterative real-world testing—each layer addresses specific failure modes encountered in production conditions.
 
 ```mermaid
 flowchart TB
-    COORD["ScannerCoordinator\n(Central orchestration & error handling)"]
-    
-    COORD --> L1
-    COORD --> L2
-    COORD --> L3
-    
-    subgraph PIPELINE["Processing Pipeline"]
-        L1["Layer 1\nCapture"] --> L2["Layer 2\nReadjustment"]
-        L2 --> L3["Layer 3\nMRZ Extract & Save"]
-        L3 --> L4["Layer 4\nDocument Filling"]
-    end
+  COORD["ScannerCoordinator (Central orchestration & error handling)"]
+  COORD --> L1
+  subgraph PIPELINE["Processing Pipeline"]
+    L1["Layer 1 Capture"] --> L2["Layer 2 Readjustment"]
+    L2 --> L3["Layer 3 MRZ Extract & Save"]
+    L3 --> L4["Layer 4 Document Filling"]
+  end
 ```
 
 **Layer 1 - Capture**: Manages USB camera I/O, live preview streaming, and raw frame acquisition

@@ -90,33 +90,29 @@ Real-time events published to the Smart Hotel cloud:
 
 ### Pin Configuration
 
-```
-ESP32-CAM AI-Thinker Pinout
-═══════════════════════════════════════
-
-Camera Interface (directly connected):
-  GPIO 0   ─────── XCLK (camera clock)
-  GPIO 26  ─────── SIOD (I2C data)
-  GPIO 27  ─────── SIOC (I2C clock)
-  GPIO 5   ─────── VSYNC
-  GPIO 18  ─────── HREF
-  GPIO 19  ─────── PCLK
-  GPIO 21  ─────── D0
-  GPIO 36  ─────── D1
-  GPIO 34  ─────── D3
-  GPIO 35  ─────── D4
-  GPIO 32  ─────── D5
-  GPIO 33  ─────── D6
-  GPIO 25  ─────── D7
-  GPIO 22  ─────── D2
-
-Flash LED:
-  GPIO 4   ─────── Flash LED (active high)
-
-Programming:
-  GPIO 0   ─────── Boot mode (LOW = programming)
-  GPIO 3   ─────── U0RXD
-  GPIO 1   ─────── U0TXD
+```mermaid
+graph TB
+    subgraph hw["Hardware Components"]
+        MCU["ESP32-S MCU<br/>Dual-Core 240MHz"]
+        Camera["OV2640 Camera<br/>2MP"]
+        Flash["4MB Flash<br/>32Mbit"]
+        PSRAM["4MB PSRAM<br/>Required for TFLite"]
+        WiFi["WiFi<br/>802.11 b/g/n"]
+        LED["Flash LED<br/>GPIO4"]
+    end
+    
+    MCU ---|I2C| Camera
+    MCU ---|SPI| Flash
+    MCU ---|BUS| PSRAM
+    MCU ---|PHY| WiFi
+    MCU ---|GPIO| LED
+    
+    style MCU fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px
+    style Camera fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style Flash fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+    style PSRAM fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style WiFi fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style LED fill:#eceff1,stroke:#37474f,stroke-width:2px
 ```
 
 ## Architecture
@@ -124,25 +120,34 @@ Programming:
 ### Software Layers
 
 ```mermaid
-block-beta
-    columns 1
-    
-    block:APP["Main Application\nface_recognition_esp32cam.ino"]
-        columns 2
-        block:TFLITE["TensorFlow Lite Micro"]
-            A["MicroInterpreter"]
-            B["MobileNetV2 Model"]
-            C["Quantized uint8"]
-        end
-        block:MQTT["MQTT Client"]
-            D["PubSubClient"]
-            E["WiFi Manager"]
-            F["ArduinoJson"]
-        end
+graph TB
+    subgraph app["Main Application Layer"]
+        APP["face_recognition_esp32cam.ino<br/>Core Application"]
     end
     
-    block:DRIVER["Camera Driver\nesp_camera.h"]
+    subgraph inference["AI Inference"]
+        TFLITE["TensorFlow Lite Micro<br/>MobileNetV2 Model<br/>96x96 Input"]
     end
+    
+    subgraph comm["Communication"]
+        MQTT["MQTT Client<br/>PubSubClient"]
+    end
+    
+    subgraph hw["Hardware Driver"]
+        DRIVER["Camera Driver<br/>esp_camera.h"]
+    end
+    
+    APP -->|Load Model| TFLITE
+    TFLITE -->|Inference Results| APP
+    APP -->|Publish Events| MQTT
+    MQTT -->|WiFi Connection| APP
+    APP -->|Capture Frames| DRIVER
+    DRIVER -->|Raw Image Data| APP
+    
+    style APP fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px
+    style TFLITE fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style MQTT fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style DRIVER fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
 ```
 
 ### Model Specifications
@@ -237,11 +242,8 @@ Arena used: 892416 bytes
 #define MQTT_CLIENT_ID      "esp32cam-kiosk-01"
 
 // MQTT Topics
-#define MQTT_TOPIC_FACE_RECOGNIZED  "hotel/kiosk/cam01/face/recognized"
-#define MQTT_TOPIC_FACE_UNKNOWN     "hotel/kiosk/cam01/face/unknown"
-#define MQTT_TOPIC_STATUS           "hotel/kiosk/cam01/status"
-#define MQTT_TOPIC_HEARTBEAT        "hotel/kiosk/cam01/heartbeat"
-#define MQTT_TOPIC_CONTROL          "hotel/kiosk/cam01/control"
+#define MQTT_TOPIC_FACE_RECOGNIZED  "/hotel/kiosk/Room1/FaceRecognition/Authentication"
+
 
 // Timing
 #define HEARTBEAT_INTERVAL_MS       30000
@@ -271,6 +273,23 @@ static const char* kLabels[] = {
 ```
 
 ## MQTT Integration
+
+### Message Flow Sequence
+
+```mermaid
+sequenceDiagram
+    participant Camera as ESP32-CAM
+    participant Broker as MQTT Broker
+    participant Dashboard as Dashboard
+    participant DB as Database
+    
+    Camera->>Broker: Publish Recognition Event
+    Broker->>Dashboard: Route to Subscribers
+    Dashboard->>Dashboard: Process Event
+    Dashboard->>DB: Store Recognition Log
+    DB-->>Dashboard: Acknowledge
+    Dashboard-->>Broker: Status Update
+```
 
 ### Published Topics
 
