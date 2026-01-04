@@ -460,6 +460,16 @@ TWILIO_PHONE_NUMBER=+1234567890
 | `hotel/notifications/failure` | OUT | `{id, reason, attempts}` |
 | `hotel/alerts/#` | IN | System alerts (gas, temperature, etc.) |
 
+#### ESP32-CAM Topics (Face Recognition)
+
+| Topic | Direction | Payload |
+|-------|-----------|---------|
+| `hotel/kiosk/+/face/recognized` | IN | `{name, confidence, timestamp, device}` |
+| `hotel/kiosk/+/face/unknown` | IN | `{confidence, timestamp, device}` |
+| `hotel/kiosk/+/status` | IN | `{status, uptime, model_ready, free_heap}` |
+| `hotel/kiosk/+/heartbeat` | IN | `{uptime, free_heap, wifi_rssi}` |
+| `hotel/kiosk/<id>/control` | OUT | `{command: "status"|"restart"|"capture"}` |
+
 ### Notification Payload
 
 ```json

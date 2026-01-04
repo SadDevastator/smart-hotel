@@ -38,7 +38,15 @@ def on_connect(client, userdata, flags, rc):
         client.subscribe("/hotel/+/telemetry/climate_mode")
         client.subscribe("/hotel/+/telemetry/fan_speed")
         
+        # Subscribe to ESP32-CAM face recognition events
+        # Topic structure: hotel/kiosk/<device_id>/face/<event>
+        client.subscribe("hotel/kiosk/+/face/recognized")
+        client.subscribe("hotel/kiosk/+/face/unknown")
+        client.subscribe("hotel/kiosk/+/status")
+        client.subscribe("hotel/kiosk/+/heartbeat")
+        
         logger.info("[MQTT] Subscribed to room telemetry topics")
+        logger.info("[MQTT] Subscribed to ESP32-CAM face recognition topics")
     else:
         logger.error(f"[MQTT] Connection failed with code {rc}")
         mqtt_connected = False
@@ -54,6 +62,22 @@ def on_message(client, userdata, msg):
     """Handle incoming MQTT messages and update room data"""
     try:
         topic_parts = msg.topic.split('/')
+        
+        # Handle ESP32-CAM face recognition events
+        # Topic structure: hotel/kiosk/<device_id>/face/<event>
+        if len(topic_parts) >= 4 and topic_parts[0] == 'hotel' and topic_parts[1] == 'kiosk':
+            device_id = topic_parts[2]
+            
+            if len(topic_parts) >= 5 and topic_parts[3] == 'face':
+                event_type = topic_parts[4]
+                handle_espcam_face_event(device_id, event_type, msg.payload.decode())
+            elif topic_parts[3] == 'status':
+                handle_espcam_status(device_id, msg.payload.decode())
+            elif topic_parts[3] == 'heartbeat':
+                handle_espcam_heartbeat(device_id, msg.payload.decode())
+            return
+        
+        # Handle room telemetry
         # Topic structure: /hotel/<room_no>/telemetry/<sensor>
         # After split: ['', 'hotel', '<room_no>', 'telemetry', '<sensor>']
         if len(topic_parts) >= 5 and topic_parts[1] == 'hotel' and topic_parts[3] == 'telemetry':
@@ -98,6 +122,207 @@ def on_message(client, userdata, msg):
             
             if on_message.counter % 10 == 0:
                 SensorHistory.record(room)
+            
+            logger.debug(f"[MQTT] {room_number}/{sensor_type}: {payload}")
+            
+    except Exception as e:
+        logger.error(f"[MQTT] Error processing message: {e}")
+
+
+# ==================== ESP32-CAM FACE RECOGNITION HANDLERS ====================
+
+def handle_espcam_face_event(device_id, event_type, payload):
+    """
+    Handle face recognition events from ESP32-CAM devices.
+    
+    Events:
+        - recognized: A known face was detected with high confidence
+        - unknown: A face was detected but couldn't be identified
+    
+    Payload format:
+        {
+            "name": "person_name",      # Only for recognized events
+            "confidence": 0.95,
+            "timestamp": 1234567890,
+            "device": "esp32cam-kiosk-01"
+        }
+    """
+    try:
+        data = json.loads(payload)
+        
+        if event_type == 'recognized':
+            name = data.get('name', 'Unknown')
+            confidence = data.get('confidence', 0)
+            
+            logger.info(f"[ESP32-CAM] Face recognized on {device_id}: {name} ({confidence*100:.1f}%)")
+            
+            # Store recognition event for kiosk integration
+            store_face_recognition_event(device_id, name, confidence)
+            
+            # Optionally notify via Telegram/SMS for VIP guests
+            if confidence >= 0.99:
+                publish_notification(
+                    f"VIP Guest '{name}' detected at kiosk {device_id}",
+                    notification_type='system',
+                    priority='normal'
+                )
+        
+        elif event_type == 'unknown':
+            confidence = data.get('confidence', 0)
+            logger.debug(f"[ESP32-CAM] Unknown face on {device_id} (confidence: {confidence*100:.1f}%)")
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"[ESP32-CAM] Invalid JSON payload: {e}")
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error handling face event: {e}")
+
+
+def handle_espcam_status(device_id, payload):
+    """
+    Handle status updates from ESP32-CAM devices.
+    
+    Payload format:
+        {
+            "status": "online",
+            "uptime": 12345,
+            "model_ready": true,
+            "free_heap": 123456,
+            "wifi_rssi": -45,
+            "ip": "192.168.1.100"
+        }
+    """
+    try:
+        data = json.loads(payload)
+        status = data.get('status', 'unknown')
+        uptime = data.get('uptime', 0)
+        model_ready = data.get('model_ready', False)
+        
+        logger.info(f"[ESP32-CAM] {device_id} status: {status}, uptime: {uptime}s, model: {model_ready}")
+        
+        # Store device status (could be in Redis or database)
+        store_espcam_status(device_id, data)
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"[ESP32-CAM] Invalid status JSON: {e}")
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error handling status: {e}")
+
+
+def handle_espcam_heartbeat(device_id, payload):
+    """
+    Handle heartbeat from ESP32-CAM devices.
+    Used for monitoring device health.
+    """
+    try:
+        data = json.loads(payload)
+        logger.debug(f"[ESP32-CAM] Heartbeat from {device_id}: heap={data.get('free_heap', 0)}")
+        
+        # Update last seen timestamp
+        update_espcam_last_seen(device_id)
+        
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error handling heartbeat: {e}")
+
+
+def store_face_recognition_event(device_id, name, confidence):
+    """Store face recognition event for kiosk integration."""
+    # This can be extended to:
+    # 1. Store in database for analytics
+    # 2. Trigger kiosk auto-fill if guest profile exists
+    # 3. Update real-time dashboard via WebSocket
+    try:
+        from django.core.cache import cache
+        
+        # Store latest recognition for quick lookup
+        cache_key = f"espcam_recognition_{device_id}"
+        cache.set(cache_key, {
+            'name': name,
+            'confidence': confidence,
+            'timestamp': json.dumps({}),  # Would be actual timestamp
+        }, timeout=300)  # 5 minute TTL
+        
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error storing recognition: {e}")
+
+
+def store_espcam_status(device_id, status_data):
+    """Store ESP32-CAM device status."""
+    try:
+        from django.core.cache import cache
+        
+        cache_key = f"espcam_status_{device_id}"
+        cache.set(cache_key, status_data, timeout=120)  # 2 minute TTL
+        
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error storing status: {e}")
+
+
+def update_espcam_last_seen(device_id):
+    """Update last seen timestamp for device health monitoring."""
+    try:
+        from django.core.cache import cache
+        from datetime import datetime
+        
+        cache_key = f"espcam_lastseen_{device_id}"
+        cache.set(cache_key, datetime.now().isoformat(), timeout=300)
+        
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error updating last seen: {e}")
+
+
+# ==================== ESP32-CAM CONTROL FUNCTIONS ====================
+
+def send_espcam_command(device_id, command):
+    """
+    Send control command to ESP32-CAM device.
+    
+    Commands:
+        - status: Request status update
+        - restart: Restart device
+        - capture: Force capture and recognition
+    """
+    global mqtt_client
+    
+    if mqtt_client is None or not mqtt_connected:
+        logger.warning("[MQTT] Client not connected, cannot send command")
+        return False
+    
+    topic = f"hotel/kiosk/{device_id}/control"
+    payload = json.dumps({'command': command})
+    
+    try:
+        mqtt_client.publish(topic, payload, qos=1)
+        logger.info(f"[ESP32-CAM] Sent command '{command}' to {device_id}")
+        return True
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error sending command: {e}")
+        return False
+
+
+def get_espcam_status(device_id):
+    """Get cached status for an ESP32-CAM device."""
+    try:
+        from django.core.cache import cache
+        
+        cache_key = f"espcam_status_{device_id}"
+        return cache.get(cache_key)
+        
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error getting status: {e}")
+        return None
+
+
+def get_latest_recognition(device_id):
+    """Get latest face recognition result for a device."""
+    try:
+        from django.core.cache import cache
+        
+        cache_key = f"espcam_recognition_{device_id}"
+        return cache.get(cache_key)
+        
+    except Exception as e:
+        logger.error(f"[ESP32-CAM] Error getting recognition: {e}")
+        return None
             
             logger.debug(f"[MQTT] {room_number}/{sensor_type}: {payload}")
             

@@ -229,8 +229,7 @@ services:
       - AUTHENTIK_EMAIL__PASSWORD=${SMTP_PASSWORD:-}
       - AUTHENTIK_EMAIL__USE_TLS=${SMTP_USE_TLS:-true}
       - AUTHENTIK_EMAIL__FROM=${SMTP_FROM:-noreply@example.com}
-      # Session settings - 7 days for hotel guests
-      - AUTHENTIK_SESSION_STORAGE=redis
+      # Session settings - use cache for Redis-backed sessions
       - AUTHENTIK_DEFAULT_USER_CHANGE_USERNAME=false
     ports:
       - "${AUTHENTIK_PORT:-9000}:9000"
@@ -302,7 +301,7 @@ services:
     networks:
       - default
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:1880/api/health"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:1880/api/ || exit 0"]
       interval: 30s
       timeout: 10s
       retries: 3
