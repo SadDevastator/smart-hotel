@@ -284,35 +284,32 @@ void Room_RTOS_PublishLEDStatus(Room_LED_t led)
 {
     Room_MQTTMessage_t message;
     Room_LED_State_t state = Room_Logic_GetLEDState(led);
-    
+
     if (led == ROOM_LED_1) {
         strcpy(message.topic, ROOM_TOPIC_LED1_STATUS);
     } else {
         strcpy(message.topic, ROOM_TOPIC_LED2_STATUS);
     }
-    
-    strcpy(message.payload, (state == ROOM_LED_ON) ? "ON" : "OFF");
+
+    snprintf(message.payload, sizeof(message.payload),
+             "{\"led\": %d, \"state\": \"%s\"}",
+             led,
+             (state == ROOM_LED_ON) ? "ON" : "OFF");
+
     message.length = strlen(message.payload);
-    
     Room_RTOS_SendMQTTMessage(&message);
 }
 
 void Room_RTOS_PublishLDRData(void)
 {
     Room_MQTTMessage_t message;
-    //uint16_t raw_value = Room_Logic_GetLDRRaw();
     uint16_t percentage = Room_Logic_GetLDRPercentage();
-    
-    // Publish raw value
-    /*
-    strcpy(message.topic, ROOM_TOPIC_LDR_RAW);
-    sprintf(message.payload, "%d", raw_value);
-    message.length = strlen(message.payload);
-    Room_RTOS_SendMQTTMessage(&message);
-    */
-    // Publish percentage
+
     strcpy(message.topic, ROOM_TOPIC_LDR_PERCENT);
-    sprintf(message.payload, "%d", percentage);
+
+    snprintf(message.payload, sizeof(message.payload),
+             "{\"ldr_percent\": %d}", percentage);
+
     message.length = strlen(message.payload);
     Room_RTOS_SendMQTTMessage(&message);
 }
@@ -320,11 +317,13 @@ void Room_RTOS_PublishLDRData(void)
 void Room_RTOS_PublishModeStatus(void)
 {
     Room_MQTTMessage_t message;
-    
+
     strcpy(message.topic, ROOM_TOPIC_MODE_STATUS);
-    strcpy(message.payload, Room_Logic_GetModeString());
+
+    snprintf(message.payload, sizeof(message.payload),
+             "{\"mode\": \"%s\"}", Room_Logic_GetModeString());
+
     message.length = strlen(message.payload);
-    
     Room_RTOS_SendMQTTMessage(&message);
 }
 

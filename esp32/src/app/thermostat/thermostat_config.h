@@ -15,6 +15,7 @@
 
 // Stack monitoring interval (ms)
 #define STACK_MONITOR_INTERVAL_MS  10000
+#define MQTT_PERIODIC_PUBLISH_MS   10000
 
 // ==================== DEBUG MACROS ====================
 #if DEBUG_ENABLED

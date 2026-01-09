@@ -601,8 +601,10 @@ void Task_FanControl(void* pvParameters) {
  * @param pvParameters Unused
  */
 void Task_Mqtt(void *pvParameters) {
+
+    uint32_t lastPeriodicPublish = 0;
     mqtt_pub_msg_t msg;
-    char payload[16];
+    char payload[64];
     
     DEBUG_PRINT(MQTT, "Started - Waiting WiFi");
     
@@ -619,6 +621,31 @@ void Task_Mqtt(void *pvParameters) {
             // Keep alive
             MQTT_Loop();
 
+            uint32_t now = millis();
+
+            if ((now - lastPeriodicPublish) >= MQTT_PERIODIC_PUBLISH_MS) {
+                lastPeriodicPublish = now;
+
+                mqtt_pub_msg_t periodicMsg;
+
+                // Temperature
+                periodicMsg.type  = MQTT_PUB_TEMP;
+                periodicMsg.value = Thermostat_GetTemp();
+                xQueueSend(mqttPublishQueue, &periodicMsg, 0);
+
+                // Target
+                periodicMsg.type  = MQTT_PUB_TARGET;
+                periodicMsg.value = Thermostat_GetTargetTemp();
+                xQueueSend(mqttPublishQueue, &periodicMsg, 0);
+
+                // Humidity (if valid)
+                periodicMsg.type  = MQTT_PUB_HUM;
+                periodicMsg.value = ReadHumiditySensor(); // if exists
+                xQueueSend(mqttPublishQueue, &periodicMsg, 0);
+
+                DEBUG_PRINT(MQTT, "Periodic publish (10s)");
+            }
+
             static bool subscribed = false;
             if (!subscribed && MQTT_IsConnected())
             {
@@ -631,22 +658,29 @@ void Task_Mqtt(void *pvParameters) {
             // Check queue
             if (xQueueReceive(mqttPublishQueue, &msg, pdMS_TO_TICKS(200)) == pdTRUE) {
                 switch (msg.type) {
+
                     case MQTT_PUB_TEMP:
-                        snprintf(payload, sizeof(payload), "%.2f", msg.value);
+                        snprintf(payload, sizeof(payload),
+                                "{\"temp\": %.2f}", msg.value);
+
                         MQTT_Publish(MQTT_TOPIC_TEMP, payload);
-                        DEBUG_PRINT(MQTT, "Pub: temp=%s", payload);
+                        DEBUG_PRINT(MQTT, "Pub JSON: %s", payload);
                         break;
-                    
+
                     case MQTT_PUB_TARGET:
-                        snprintf(payload, sizeof(payload), "%.1f", msg.value);
+                        snprintf(payload, sizeof(payload),
+                                "{\"target\": %.1f}", msg.value);
+
                         MQTT_Publish(MQTT_TOPIC_TARGET, payload);
-                        DEBUG_PRINT(MQTT, "Pub: target=%s", payload);
+                        DEBUG_PRINT(MQTT, "Pub JSON: %s", payload);
                         break;
 
                     case MQTT_PUB_HUM:
-                        snprintf(payload, sizeof(payload), "%.1f", msg.value);
+                        snprintf(payload, sizeof(payload),
+                                "{\"humidity\": %.1f}", msg.value);
+
                         MQTT_Publish(MQTT_TOPIC_HUMIDITY, payload);
-                        DEBUG_PRINT(MQTT, "Pub: humidity=%s", payload);
+                        DEBUG_PRINT(MQTT, "Pub JSON: %s", payload);
                         break;
 
                     default:

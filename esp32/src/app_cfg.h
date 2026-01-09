@@ -174,25 +174,37 @@
  * MQTT Topics
  * ========================= */
 // MQTT Topics
+#define ROOM_ID                     "Room101"
 
-#define ROOM_TOPIC_LED1_CTRL    "hotel/room101/led1/control"
-#define ROOM_TOPIC_LED2_CTRL    "hotel/room101/led2/control"
-#define ROOM_TOPIC_LED1_STATUS  "room/led1/status"
-#define ROOM_TOPIC_LED2_STATUS  "room/led2/status"
+
+/* --- LED Control Topics --- */
+
+/** @brief LED 1 control topic */
+#define MQTT_TOPIC_LED1_CTRL        "hotel/" ROOM_ID "/control/led1"
+
+/** @brief LED 2 control topic */
+#define MQTT_TOPIC_LED2_CTRL        "hotel/" ROOM_ID "/control/led2"
+
+/** @brief LED 1 status topic */
+#define MQTT_TOPIC_LED1_STATUS      "hotel/" ROOM_ID "/status/led1"
+
+/** @brief LED 2 status topic */
+#define MQTT_TOPIC_LED2_STATUS      "hotel/" ROOM_ID "/status/led2"
+
 #define ROOM_TOPIC_LDR_RAW      "room/ldr/raw"
 #define ROOM_TOPIC_LDR_PERCENT  "room/ldr/percentage"
-#define ROOM_TOPIC_MODE_CTRL    "room/mode/control"      // Set mode: AUTO/MANUAL/OFF
-#define ROOM_TOPIC_MODE_STATUS  "room/mode/status"       // Current mode status
+#define ROOM_TOPIC_MODE_CTRL    "hotel/" ROOM_ID "/control/room_mode"      // Set mode: AUTO/MANUAL/OFF
+#define ROOM_TOPIC_MODE_STATUS  "hotel/" ROOM_ID "/status/room_mode"       // Current mode status
 #define ROOM_TOPIC_AUTO_DIM     "room/auto_dim/control"  // Deprecated - use mode instead
 
-#define MQTT_TOPIC_TEMP         "hotel/101/telemetry/temperature"
-#define MQTT_TOPIC_HUMIDITY     "hotel/101/telemetry/humidity	"
-#define MQTT_TOPIC_TARGET       "hotel/101/control/target_temp"
+#define MQTT_TOPIC_TEMP         "hotel/" ROOM_ID "/telemetry/temperature"
+#define MQTT_TOPIC_HUMIDITY     "hotel/" ROOM_ID "/telemetry/humidity"
+#define MQTT_TOPIC_TARGET       "hotel/" ROOM_ID "/control/target_temp"
 #define MQTT_TOPIC_HEATING      "home/thermostat/heating"
 #define MQTT_TOPIC_LUMINOSITY   "hotel/101/telemetry/luminosity"
 #define MQTT_TOPIC_GAS          "home/thermostat/gas"
-#define MQTT_TOPIC_CONTROL      "hotel/101/control/mode"
-#define MQTT_TOPIC_SET_SPEED    "hotel/101/control/fan_speed"
+#define MQTT_TOPIC_CONTROL      "hotel/" ROOM_ID "/control/mode"
+#define MQTT_TOPIC_SET_SPEED    "hotel/" ROOM_ID "/control/fan_speed"
 
 
 
