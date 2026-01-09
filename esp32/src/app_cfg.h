@@ -180,16 +180,16 @@
 /* --- LED Control Topics --- */
 
 /** @brief LED 1 control topic */
-#define MQTT_TOPIC_LED1_CTRL        "hotel/" ROOM_ID "/control/led1"
+#define ROOM_TOPIC_LED1_CTRL        "hotel/" ROOM_ID "/control/led1"
 
 /** @brief LED 2 control topic */
-#define MQTT_TOPIC_LED2_CTRL        "hotel/" ROOM_ID "/control/led2"
+#define ROOM_TOPIC_LED2_CTRL        "hotel/" ROOM_ID "/control/led2"
 
 /** @brief LED 1 status topic */
-#define MQTT_TOPIC_LED1_STATUS      "hotel/" ROOM_ID "/status/led1"
+#define ROOM_TOPIC_LED1_STATUS      "hotel/" ROOM_ID "/status/led1"
 
 /** @brief LED 2 status topic */
-#define MQTT_TOPIC_LED2_STATUS      "hotel/" ROOM_ID "/status/led2"
+#define ROOM_TOPIC_LED2_STATUS      "hotel/" ROOM_ID "/status/led2"
 
 #define ROOM_TOPIC_LDR_RAW      "room/ldr/raw"
 #define ROOM_TOPIC_LDR_PERCENT  "room/ldr/percentage"
